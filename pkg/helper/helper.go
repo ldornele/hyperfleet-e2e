@@ -182,7 +182,8 @@ func (h *Helper) GetTestNodePool(ctx context.Context, clusterID, payloadPath str
 
 // CleanupTestNodePool cleans up test nodepool
 func (h *Helper) CleanupTestNodePool(ctx context.Context, clusterID, nodepoolID string) error {
-	return h.Client.DeleteNodePool(ctx, clusterID, nodepoolID)
+	_, err := h.Client.DeleteNodePool(ctx, clusterID, nodepoolID)
+	return err
 }
 
 // GetMaestroClient returns the Maestro client, initializing it lazily on first access

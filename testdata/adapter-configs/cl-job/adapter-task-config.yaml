@@ -27,6 +27,8 @@ preconditions:
         field: "generation"
       - name: "simulateResult"     # possible values: success (default), failure, hang, crash, invalid-json, missing-status
         field: "simulateResult"
+      - name: "is_deleting"
+        expression: "has(clusterStatus.deleted_time)"
       - name: "clusterNotReconciled"
         expression: |
           status.conditions.filter(c, c.type == "Reconciled").size() > 0
@@ -40,11 +42,6 @@ preconditions:
               : now()
           )).getSeconds() > 300
 
-  - name: "validationCheck"
-    # Precondition passes if cluster is NOT Reconciled OR if cluster is Reconciled and stable for >300 seconds since last transition (enables self-healing)
-    expression: |
-      clusterNotReconciled || clusterReconciledTTL
-
   - name: "clusterAdapterStatus"
     api_call:
       method: "GET"
@@ -55,10 +52,10 @@ preconditions:
     capture:
       - name: "clusterNamespaceStatus"
         field: "{.items[?(@.adapter=='cl-namespace')].data.namespace.status}"
-    conditions:
-      - field: "clusterNamespaceStatus"
-        operator: "equals"
-        value: "Active"
+
+  - name: "validationCheck"
+    expression: |
+      is_deleting || (clusterNamespaceStatus == "Active" && (clusterNotReconciled || clusterReconciledTTL))
 
 # Resources with valid K8s manifests
 resources:
@@ -76,6 +73,11 @@ resources:
         label_selector:
           hyperfleet.io/resource-type: "service-account"
           hyperfleet.io/cluster-id: "{{ .clusterId }}"
+    lifecycle:
+      delete:
+        propagationPolicy: Background
+        when:
+          expression: "is_deleting"
 
   - name: "jobRole"
     transport:
@@ -88,6 +90,11 @@ resources:
         label_selector:
           hyperfleet.io/cluster-id: "{{ .clusterId }}"
           hyperfleet.io/resource-type: "role"
+    lifecycle:
+      delete:
+        propagationPolicy: Background
+        when:
+          expression: "is_deleting"
 
   - name: "jobRolebinding"
     transport:
@@ -100,6 +107,11 @@ resources:
         label_selector:
           hyperfleet.io/cluster-id: "{{ .clusterId }}"
           hyperfleet.io/resource-type: "role-binding"
+    lifecycle:
+      delete:
+        propagationPolicy: Background
+        when:
+          expression: "is_deleting"
 
   - name: "testJob"
     transport:
@@ -112,6 +124,11 @@ resources:
         label_selector:
           hyperfleet.io/cluster-id: "{{ .clusterId }}"
           hyperfleet.io/resource-type: "job"
+    lifecycle:
+      delete:
+        propagationPolicy: Background
+        when:
+          expression: "is_deleting"
 
 # Post-processing with valid CEL expressions
 # This example contains multiple resources, we will only report on the conditions of the jobNamespace not to overcomplicate the example
@@ -142,8 +159,8 @@ post:
               expression: |
                 has(resources.testJob) ?
                  ( resources.?testJob.?status.?conditions.orValue([]).exists(c, c.type == "Available")
-                  ? resources.testJob.status.conditions.filter(c, c.type == "Available")[0].status : "Unknown")
-                 : "Unknown"
+                  ? resources.testJob.status.conditions.filter(c, c.type == "Available")[0].status : "False")
+                 : "False"
             reason:
               expression: |
                 resources.?testJob.?status.?conditions.orValue([]).exists(c, c.type == "Available")
@@ -160,13 +177,54 @@ post:
           - type: "Health"
             status:
               expression: |
-                adapter.?executionStatus.orValue("") == "success" ? "True" : "False"
+                adapter.?executionStatus.orValue("") == "success"
+                  && !adapter.?resourcesSkipped.orValue(false)
+                ? "True"
+                : "False"
             reason:
               expression: |
-                adapter.?errorReason.orValue("") != "" ? adapter.?errorReason.orValue("") : "Healthy"
+                adapter.?executionStatus.orValue("") != "success"
+                ? "ExecutionFailed:" + adapter.?executionError.?phase.orValue("unknown")
+                : adapter.?resourcesSkipped.orValue(false)
+                  ? "ResourcesSkipped"
+                  : "Healthy"
             message:
               expression: |
-                adapter.?errorMessage.orValue("") != "" ? adapter.?errorMessage.orValue("") : "All adapter operations in progress or completed successfully"
+                adapter.?executionStatus.orValue("") != "success"
+                ? "Adapter failed at phase ["
+                    + adapter.?executionError.?phase.orValue("unknown")
+                    + "] step ["
+                    + adapter.?executionError.?step.orValue("unknown")
+                    + "]: "
+                    + adapter.?executionError.?message.orValue(adapter.?errorMessage.orValue("no details"))
+                : adapter.?resourcesSkipped.orValue(false)
+                  ? "Resources skipped: " + adapter.?skipReason.orValue("unknown reason")
+                  : "Adapter execution completed successfully"
+          # Finalized: True once all job resources are confirmed deleted
+          - type: "Finalized"
+            status:
+              expression: |
+                is_deleting
+                  && adapter.?executionStatus.orValue("") == "success"
+                  && !adapter.?resourcesSkipped.orValue(false)
+                  && !resources.?testJob.hasValue()
+                  && !resources.?jobServiceAccount.hasValue()
+                  && !resources.?jobRole.hasValue()
+                  && !resources.?jobRolebinding.hasValue()
+                ? "True"
+                : "False"
+            reason:
+              expression: |
+                !is_deleting ? ""
+                : !resources.?testJob.hasValue() && !resources.?jobServiceAccount.hasValue() && !resources.?jobRole.hasValue() && !resources.?jobRolebinding.hasValue()
+                  ? "CleanupConfirmed"
+                  : "CleanupInProgress"
+            message:
+              expression: |
+                !is_deleting ? ""
+                : !resources.?testJob.hasValue() && !resources.?jobServiceAccount.hasValue() && !resources.?jobRole.hasValue() && !resources.?jobRolebinding.hasValue()
+                  ? "All resources deleted; cleanup confirmed"
+                  : "Deletion in progress; waiting for resources to be removed"
         # Event generation ID metadata field needs to use expression to avoid interpolation issues
         observed_generation:
           expression: "generationSpec"

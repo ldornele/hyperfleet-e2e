@@ -69,13 +69,55 @@ func (c *HyperFleetClient) CreateNodePoolFromPayload(ctx context.Context, cluste
 	return c.CreateNodePool(ctx, clusterID, *req)
 }
 
-// DeleteNodePool deletes a nodepool by ID.
-// TODO(API): Implement nodepool deletion once HyperFleet API supports DELETE operations.
-// Currently this is a no-op as the API does not support nodepool deletion yet.
-// Resources will remain in the system until manually cleaned up.
-func (c *HyperFleetClient) DeleteNodePool(ctx context.Context, clusterID, nodepoolID string) error {
-	// HyperFleet API does not yet support nodepool deletion
-	// Log this as info (not error) since it's expected behavior
-	logger.Debug("nodepool deletion not supported by API - skipping", "cluster_id", clusterID, "nodepool_id", nodepoolID)
-	return nil
+// DeleteNodePool soft-deletes a nodepool by ID (sets deleted_time, returns 202).
+func (c *HyperFleetClient) DeleteNodePool(ctx context.Context, clusterID, nodepoolID string) (*openapi.NodePool, error) {
+	logger.Info("deleting nodepool", "cluster_id", clusterID, "nodepool_id", nodepoolID)
+
+	resp, err := c.DeleteNodePoolById(ctx, clusterID, nodepoolID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete nodepool: %w", err)
+	}
+
+	nodepool, err := handleHTTPResponse[openapi.NodePool](resp, http.StatusAccepted, "delete nodepool")
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Info("nodepool deleted", "cluster_id", clusterID, "nodepool_id", nodepoolID)
+	return nodepool, nil
+}
+
+// PatchNodePool updates a nodepool via PATCH.
+func (c *HyperFleetClient) PatchNodePool(ctx context.Context, clusterID, nodepoolID string, req openapi.NodePoolPatchRequest) (*openapi.NodePool, error) {
+	logger.Info("patching nodepool", "cluster_id", clusterID, "nodepool_id", nodepoolID)
+
+	resp, err := c.PatchNodePoolById(ctx, clusterID, nodepoolID, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to patch nodepool: %w", err)
+	}
+
+	nodepool, err := handleHTTPResponse[openapi.NodePool](resp, http.StatusOK, "patch nodepool")
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Info("nodepool patched", "cluster_id", clusterID, "nodepool_id", nodepoolID, "generation", nodepool.Generation)
+	return nodepool, nil
+}
+
+// PatchNodePoolFromPayload patches a nodepool from a JSON payload file.
+func (c *HyperFleetClient) PatchNodePoolFromPayload(ctx context.Context, clusterID, nodepoolID, payloadPath string) (*openapi.NodePool, error) {
+	logger.Debug("loading nodepool patch payload", "payload_path", payloadPath)
+
+	req, err := loadPayloadFromFile[openapi.NodePoolPatchRequest](payloadPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.PatchNodePool(ctx, clusterID, nodepoolID, *req)
+}
+
+// PatchNodePoolRaw sends a PATCH request and returns the raw HTTP response for status inspection.
+func (c *HyperFleetClient) PatchNodePoolRaw(ctx context.Context, clusterID, nodepoolID string, req openapi.NodePoolPatchRequest) (*http.Response, error) {
+	return c.PatchNodePoolById(ctx, clusterID, nodepoolID, req)
 }

@@ -69,13 +69,55 @@ func (c *HyperFleetClient) CreateClusterFromPayload(ctx context.Context, payload
 	return c.CreateCluster(ctx, *req)
 }
 
-// DeleteCluster deletes a cluster by ID.
-// TODO(API): Implement cluster deletion once HyperFleet API supports DELETE operations.
-// Currently this is a no-op as the API does not support cluster deletion yet.
-// Resources will remain in the system until manually cleaned up.
-func (c *HyperFleetClient) DeleteCluster(ctx context.Context, clusterID string) error {
-	// HyperFleet API does not yet support cluster deletion
-	// Log this as info (not error) since it's expected behavior
-	logger.Debug("cluster deletion not supported by API - skipping", "cluster_id", clusterID)
-	return nil
+// DeleteCluster soft-deletes a cluster by ID (sets deleted_time, returns 202).
+func (c *HyperFleetClient) DeleteCluster(ctx context.Context, clusterID string) (*openapi.Cluster, error) {
+	logger.Info("deleting cluster", "cluster_id", clusterID)
+
+	resp, err := c.DeleteClusterById(ctx, clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete cluster: %w", err)
+	}
+
+	cluster, err := handleHTTPResponse[openapi.Cluster](resp, http.StatusAccepted, "delete cluster")
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Info("cluster deleted", "cluster_id", clusterID)
+	return cluster, nil
+}
+
+// PatchCluster updates a cluster via PATCH.
+func (c *HyperFleetClient) PatchCluster(ctx context.Context, clusterID string, req openapi.ClusterPatchRequest) (*openapi.Cluster, error) {
+	logger.Info("patching cluster", "cluster_id", clusterID)
+
+	resp, err := c.PatchClusterById(ctx, clusterID, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to patch cluster: %w", err)
+	}
+
+	cluster, err := handleHTTPResponse[openapi.Cluster](resp, http.StatusOK, "patch cluster")
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Info("cluster patched", "cluster_id", clusterID, "generation", cluster.Generation)
+	return cluster, nil
+}
+
+// PatchClusterFromPayload patches a cluster from a JSON payload file.
+func (c *HyperFleetClient) PatchClusterFromPayload(ctx context.Context, clusterID, payloadPath string) (*openapi.Cluster, error) {
+	logger.Debug("loading cluster patch payload", "payload_path", payloadPath)
+
+	req, err := loadPayloadFromFile[openapi.ClusterPatchRequest](payloadPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.PatchCluster(ctx, clusterID, *req)
+}
+
+// PatchClusterRaw sends a PATCH request and returns the raw HTTP response for status inspection.
+func (c *HyperFleetClient) PatchClusterRaw(ctx context.Context, clusterID string, req openapi.ClusterPatchRequest) (*http.Response, error) {
+	return c.PatchClusterById(ctx, clusterID, req)
 }

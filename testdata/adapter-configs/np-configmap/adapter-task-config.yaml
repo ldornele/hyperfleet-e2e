@@ -25,6 +25,8 @@ preconditions:
         field: "name"
       - name: "generationSpec"
         field: "generation"
+      - name: "is_deleting"
+        expression: "has(nodepoolStatus.deleted_time)"
       - name: "nodepoolNotReconciled"
         expression: |
           status.conditions.filter(c, c.type == "Reconciled").size() > 0
@@ -38,11 +40,6 @@ preconditions:
               : now()
           )).getSeconds() > 300
 
-  - name: "validationCheck"
-    # Precondition passes if nodepool is NOT Reconciled OR if nodepool is Reconciled and stable for >300 seconds since last transition (enables self-healing)
-    expression: |
-      nodepoolNotReconciled || nodepoolReconciledTTL
-
   - name: "clusterAdapterStatus"
     api_call:
       method: "GET"
@@ -53,10 +50,11 @@ preconditions:
     capture:
       - name: "clusterNamespaceStatus"
         field: "{.items[?(@.adapter=='cl-namespace')].data.namespace.status}"
-    conditions:
-      - field: "clusterNamespaceStatus"
-        operator: "equals"
-        value: "Active"
+
+  - name: "validationCheck"
+    # Precondition passes if deleting OR (namespace active AND (nodepool not reconciled OR reconciled TTL expired))
+    expression: |
+      is_deleting || (clusterNamespaceStatus == "Active" && (nodepoolNotReconciled || nodepoolReconciledTTL))
 
 # Resources with valid K8s manifests
 resources:
@@ -72,6 +70,11 @@ resources:
           hyperfleet.io/resource-type: "configmap"
           hyperfleet.io/cluster-id: "{{ .clusterId }}"
           hyperfleet.io/nodepool-id: "{{ .nodepoolId }}"
+    lifecycle:
+      delete:
+        propagationPolicy: Background
+        when:
+          expression: "is_deleting"
 
 # Post-processing with valid CEL expressions
 post:
@@ -114,13 +117,51 @@ post:
           - type: "Health"
             status:
               expression: |
-                adapter.?executionStatus.orValue("") == "success" ? "True" : "False"
+                adapter.?executionStatus.orValue("") == "success"
+                  && !adapter.?resourcesSkipped.orValue(false)
+                ? "True"
+                : "False"
             reason:
               expression: |
-                adapter.?errorReason.orValue("") != "" ? adapter.?errorReason.orValue("") : "Healthy"
+                adapter.?executionStatus.orValue("") != "success"
+                ? "ExecutionFailed:" + adapter.?executionError.?phase.orValue("unknown")
+                : adapter.?resourcesSkipped.orValue(false)
+                  ? "ResourcesSkipped"
+                  : "Healthy"
             message:
               expression: |
-                adapter.?errorMessage.orValue("") != "" ? adapter.?errorMessage.orValue("") : "All adapter operations in progress or completed successfully"
+                adapter.?executionStatus.orValue("") != "success"
+                ? "Adapter failed at phase ["
+                    + adapter.?executionError.?phase.orValue("unknown")
+                    + "] step ["
+                    + adapter.?executionError.?step.orValue("unknown")
+                    + "]: "
+                    + adapter.?executionError.?message.orValue(adapter.?errorMessage.orValue("no details"))
+                : adapter.?resourcesSkipped.orValue(false)
+                  ? "Resources skipped: " + adapter.?skipReason.orValue("unknown reason")
+                  : "Adapter execution completed successfully"
+          # Finalized: True once configmap is confirmed deleted during deletion
+          - type: "Finalized"
+            status:
+              expression: |
+                is_deleting
+                  && adapter.?executionStatus.orValue("") == "success"
+                  && !adapter.?resourcesSkipped.orValue(false)
+                  && !resources.?nodepoolConfigMap.hasValue()
+                ? "True"
+                : "False"
+            reason:
+              expression: |
+                !is_deleting ? ""
+                : !resources.?nodepoolConfigMap.hasValue()
+                  ? "CleanupConfirmed"
+                  : "CleanupInProgress"
+            message:
+              expression: |
+                !is_deleting ? ""
+                : !resources.?nodepoolConfigMap.hasValue()
+                  ? "All resources deleted; cleanup confirmed"
+                  : "Deletion in progress; waiting for configmap to be removed"
         # Event generation ID metadata field needs to use expression to avoid interpolation issues
         observed_generation:
           expression: "generationSpec"
