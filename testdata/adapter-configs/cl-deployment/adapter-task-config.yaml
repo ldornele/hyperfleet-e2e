@@ -151,13 +151,13 @@ post:
                 : "False"
             reason:
               expression: |
-                !is_deleting ? ""
+                !is_deleting ? "NotDeleting"
                 : !resources.?testDeployment.hasValue()
                   ? "CleanupConfirmed"
                   : "CleanupInProgress"
             message:
               expression: |
-                !is_deleting ? ""
+                !is_deleting ? "Resource not marked for deletion"
                 : !resources.?testDeployment.hasValue()
                   ? "All resources deleted; cleanup confirmed"
                   : "Deletion in progress; waiting for deployment to be removed"

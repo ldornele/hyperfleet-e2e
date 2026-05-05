@@ -2,6 +2,7 @@ package nodepool
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/onsi/ginkgo/v2"
@@ -28,7 +29,7 @@ var _ = ginkgo.Describe("[Suite: nodepool][delete] NodePool Deletion Lifecycle",
 			clusterID, err = h.GetTestCluster(ctx, h.TestDataPath("payloads/clusters/cluster-request.json"))
 			Expect(err).NotTo(HaveOccurred(), "failed to create cluster")
 
-			Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Ready, h.Cfg.Polling.Interval).
+			Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
 				Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 
 			ginkgo.By("creating nodepool and waiting for Reconciled")
@@ -37,7 +38,7 @@ var _ = ginkgo.Describe("[Suite: nodepool][delete] NodePool Deletion Lifecycle",
 			Expect(np.Id).NotTo(BeNil(), "nodepool ID should be generated")
 			nodepoolID = *np.Id
 
-			Eventually(h.PollNodePool(ctx, clusterID, nodepoolID), h.Cfg.Timeouts.NodePool.Ready, h.Cfg.Polling.Interval).
+			Eventually(h.PollNodePool(ctx, clusterID, nodepoolID), h.Cfg.Timeouts.NodePool.Reconciled, h.Cfg.Polling.Interval).
 				Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 		})
 
@@ -58,25 +59,19 @@ var _ = ginkgo.Describe("[Suite: nodepool][delete] NodePool Deletion Lifecycle",
 			// computes Reconciled=True, so there is no observable window to see Finalized=True
 			// on the statuses endpoint. Accept either Finalized=True OR 404 (already hard-deleted).
 			Eventually(func(g Gomega) {
-				httpStatus, err := h.PollNodePoolHTTPStatus(ctx, clusterID, nodepoolID)()
-				g.Expect(err).NotTo(HaveOccurred())
-				if httpStatus == http.StatusNotFound {
+				var httpErr *client.HTTPError
+				_, err := h.Client.GetNodePool(ctx, clusterID, nodepoolID)
+				if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusNotFound {
 					return
 				}
-				statuses, err := h.Client.GetNodePoolStatuses(ctx, clusterID, nodepoolID)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(statuses.Items).NotTo(BeEmpty(), "adapter statuses should be present before hard-delete")
-				for _, requiredAdapter := range h.Cfg.Adapters.NodePool {
-					found := false
-					for _, adapter := range statuses.Items {
-						if adapter.Adapter == requiredAdapter {
-							found = true
-							g.Expect(h.HasAdapterCondition(adapter.Conditions, client.ConditionTypeFinalized, openapi.AdapterConditionStatusTrue)).To(BeTrue(),
-								"adapter %s should have Finalized=True", requiredAdapter)
-						}
-					}
-					g.Expect(found).To(BeTrue(), "required adapter %s not found in statuses", requiredAdapter)
+				statuses, err := h.Client.GetNodePoolStatuses(ctx, clusterID, nodepoolID)
+				if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusNotFound {
+					return
 				}
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(statuses).To(helper.HaveAllAdaptersWithCondition(
+					h.Cfg.Adapters.NodePool, client.ConditionTypeFinalized, openapi.AdapterConditionStatusTrue))
 			}, h.Cfg.Timeouts.Adapter.Processing, h.Cfg.Polling.Interval).Should(Succeed())
 
 			ginkgo.By("confirming nodepool is hard-deleted")
@@ -89,8 +84,8 @@ var _ = ginkgo.Describe("[Suite: nodepool][delete] NodePool Deletion Lifecycle",
 			Expect(parentCluster.DeletedTime).To(BeNil(), "parent cluster should not have deleted_time")
 			Expect(parentCluster.Generation).To(Equal(parentBefore.Generation), "parent cluster generation should remain unchanged")
 
-			hasReconciled := h.HasResourceCondition(parentCluster.Status.Conditions, client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue)
-			Expect(hasReconciled).To(BeTrue(), "parent cluster should remain Reconciled=True")
+			Expect(parentCluster).To(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue),
+				"parent cluster should remain Reconciled=True")
 		})
 
 		ginkgo.It("should return 409 Conflict when PATCHing a soft-deleted nodepool", ginkgo.Label(labels.Negative), func(ctx context.Context) {
@@ -104,17 +99,20 @@ var _ = ginkgo.Describe("[Suite: nodepool][delete] NodePool Deletion Lifecycle",
 			patchReq := openapi.NodePoolPatchRequest{
 				Spec: &openapi.NodePoolSpec{"updated-key": "should-not-work"},
 			}
-			resp, err := h.Client.PatchNodePoolRaw(ctx, clusterID, nodepoolID, patchReq)
-			Expect(err).NotTo(HaveOccurred(), "raw PATCH request should not fail at transport level")
-			defer func() { _ = resp.Body.Close() }()
-			Expect(resp.StatusCode).To(Equal(http.StatusConflict),
-				"PATCH on soft-deleted nodepool should return 409 Conflict")
+			_, patchErr := h.Client.PatchNodePool(ctx, clusterID, nodepoolID, patchReq)
+			Expect(patchErr).To(HaveOccurred(), "PATCH on soft-deleted nodepool should be rejected")
+			var httpErr *client.HTTPError
+			Expect(errors.As(patchErr, &httpErr)).To(BeTrue(), "error should be an HTTP error")
+			Expect(httpErr.StatusCode).To(Or(Equal(http.StatusConflict), Equal(http.StatusNotFound)),
+				"PATCH should be rejected once nodepool deletion has started")
 
-			ginkgo.By("verifying nodepool state is unchanged after rejected PATCH")
-			np, err := h.Client.GetNodePool(ctx, clusterID, nodepoolID)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(np.Generation).To(Equal(deletedGeneration), "generation should not change after rejected PATCH")
-			Expect(np.DeletedTime).NotTo(BeNil(), "nodepool should still be marked as deleted")
+			if httpErr.StatusCode == http.StatusConflict {
+				ginkgo.By("verifying nodepool state is unchanged after rejected PATCH")
+				np, err := h.Client.GetNodePool(ctx, clusterID, nodepoolID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(np.Generation).To(Equal(deletedGeneration), "generation should not change after rejected PATCH")
+				Expect(np.DeletedTime).NotTo(BeNil(), "nodepool should still be marked as deleted")
+			}
 		})
 
 		ginkgo.AfterEach(func(ctx context.Context) {

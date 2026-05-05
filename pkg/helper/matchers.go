@@ -7,6 +7,7 @@ import (
 	"github.com/onsi/gomega/types"
 
 	"github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/api/openapi"
+	"github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/client"
 )
 
 // HaveResourceCondition matches a *Cluster or *NodePool that has the specified condition type and status.
@@ -68,6 +69,9 @@ func (m *allAdaptersConditionMatcher) Match(actual any) (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("HaveAllAdaptersWithCondition expects *AdapterStatusList, got %T", actual)
 	}
+	if list == nil {
+		return false, fmt.Errorf("HaveAllAdaptersWithCondition expects non-nil *AdapterStatusList")
+	}
 
 	m.missing = nil
 	adapterMap := make(map[string]openapi.AdapterStatus, len(list.Items))
@@ -116,6 +120,9 @@ func (m *allAdaptersGenerationMatcher) Match(actual any) (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("HaveAllAdaptersAtGeneration expects *AdapterStatusList, got %T", actual)
 	}
+	if list == nil {
+		return false, fmt.Errorf("HaveAllAdaptersAtGeneration expects non-nil *AdapterStatusList")
+	}
 
 	m.failures = nil
 	adapterMap := make(map[string]openapi.AdapterStatus, len(list.Items))
@@ -133,7 +140,7 @@ func (m *allAdaptersGenerationMatcher) Match(actual any) (bool, error) {
 			m.failures = append(m.failures, fmt.Sprintf("%s: generation %d (want %d)", name, adapter.ObservedGeneration, m.generation))
 			continue
 		}
-		for _, ct := range []string{"Applied", "Available", "Health"} {
+		for _, ct := range []string{client.ConditionTypeApplied, client.ConditionTypeAvailable, client.ConditionTypeHealth} {
 			if !hasAdapterCond(adapter.Conditions, ct, openapi.AdapterConditionStatusTrue) {
 				m.failures = append(m.failures, fmt.Sprintf("%s: %s!=True", name, ct))
 			}

@@ -100,7 +100,7 @@ var _ = ginkgo.Describe(testName,
             clusterID = *cluster.Id
 
             ginkgo.By("waiting for cluster to become Reconciled")
-            Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Ready, h.Cfg.Polling.Interval).
+            Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
                 Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
         })
 
@@ -220,7 +220,7 @@ Expect(cluster.Id).NotTo(BeNil())
 Expect(cluster.Generation).To(Equal(int32(1)))
 
 // Async: use pollers + custom matchers (preferred)
-Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Ready, h.Cfg.Polling.Interval).
+Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
     Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 
 // Async: use func(g Gomega) for complex one-off assertions
@@ -241,12 +241,12 @@ The framework uses **pollers** (functions that fetch current state) and **custom
 
 ```go
 // Cluster
-Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Ready, h.Cfg.Polling.Interval).
+Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
     Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 
 // NodePool (same matcher, different poller)
-Eventually(h.PollNodePool(ctx, clusterID, npID), h.Cfg.Timeouts.NodePool.Ready, h.Cfg.Polling.Interval).
-    Should(helper.HaveResourceCondition(client.ConditionTypeReady, openapi.ResourceConditionStatusTrue))
+Eventually(h.PollNodePool(ctx, clusterID, npID), h.Cfg.Timeouts.NodePool.Reconciled, h.Cfg.Polling.Interval).
+    Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 ```
 
 ### Wait for Adapter Conditions
@@ -363,7 +363,7 @@ Expect(err).NotTo(HaveOccurred())
 ### Wait for Condition
 
 ```go
-Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Ready, h.Cfg.Polling.Interval).
+Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
     Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 ```
 

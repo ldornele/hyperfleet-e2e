@@ -152,13 +152,13 @@ post:
                 : "False"
             reason:
               expression: |
-                !is_deleting ? ""
+                !is_deleting ? "NotDeleting"
                 : !resources.?nodepoolConfigMap.hasValue()
                   ? "CleanupConfirmed"
                   : "CleanupInProgress"
             message:
               expression: |
-                !is_deleting ? ""
+                !is_deleting ? "Resource not marked for deletion"
                 : !resources.?nodepoolConfigMap.hasValue()
                   ? "All resources deleted; cleanup confirmed"
                   : "Deletion in progress; waiting for configmap to be removed"

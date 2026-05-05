@@ -116,8 +116,3 @@ func (c *HyperFleetClient) PatchClusterFromPayload(ctx context.Context, clusterI
 
 	return c.PatchCluster(ctx, clusterID, *req)
 }
-
-// PatchClusterRaw sends a PATCH request and returns the raw HTTP response for status inspection.
-func (c *HyperFleetClient) PatchClusterRaw(ctx context.Context, clusterID string, req openapi.ClusterPatchRequest) (*http.Response, error) {
-	return c.PatchClusterById(ctx, clusterID, req)
-}

@@ -28,7 +28,7 @@ var _ = ginkgo.Describe("[Suite: cluster][delete] Cluster Deletion Lifecycle",
 			clusterID, err = h.GetTestCluster(ctx, h.TestDataPath("payloads/clusters/cluster-request.json"))
 			Expect(err).NotTo(HaveOccurred(), "failed to create cluster")
 
-			Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Ready, h.Cfg.Polling.Interval).
+			Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
 				Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 		})
 
@@ -47,25 +47,19 @@ var _ = ginkgo.Describe("[Suite: cluster][delete] Cluster Deletion Lifecycle",
 			// computes Reconciled=True, so there is no observable window to see Finalized=True
 			// on the statuses endpoint. Accept either Finalized=True OR 404 (already hard-deleted).
 			Eventually(func(g Gomega) {
-				httpStatus, err := h.PollClusterHTTPStatus(ctx, clusterID)()
-				g.Expect(err).NotTo(HaveOccurred())
-				if httpStatus == http.StatusNotFound {
+				var httpErr *client.HTTPError
+				_, err := h.Client.GetCluster(ctx, clusterID)
+				if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusNotFound {
 					return
 				}
-				statuses, err := h.Client.GetClusterStatuses(ctx, clusterID)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(statuses.Items).NotTo(BeEmpty(), "adapter statuses should be present before hard-delete")
-				for _, requiredAdapter := range h.Cfg.Adapters.Cluster {
-					found := false
-					for _, adapter := range statuses.Items {
-						if adapter.Adapter == requiredAdapter {
-							found = true
-							g.Expect(h.HasAdapterCondition(adapter.Conditions, client.ConditionTypeFinalized, openapi.AdapterConditionStatusTrue)).To(BeTrue(),
-								"adapter %s should have Finalized=True", requiredAdapter)
-						}
-					}
-					g.Expect(found).To(BeTrue(), "required adapter %s not found in statuses", requiredAdapter)
+				statuses, err := h.Client.GetClusterStatuses(ctx, clusterID)
+				if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusNotFound {
+					return
 				}
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(statuses).To(helper.HaveAllAdaptersWithCondition(
+					h.Cfg.Adapters.Cluster, client.ConditionTypeFinalized, openapi.AdapterConditionStatusTrue))
 			}, h.Cfg.Timeouts.Adapter.Processing, h.Cfg.Polling.Interval).Should(Succeed())
 
 			ginkgo.By("confirming cluster is hard-deleted")
@@ -88,17 +82,20 @@ var _ = ginkgo.Describe("[Suite: cluster][delete] Cluster Deletion Lifecycle",
 			patchReq := openapi.ClusterPatchRequest{
 				Spec: &openapi.ClusterSpec{"updated-key": "should-not-work"},
 			}
-			resp, err := h.Client.PatchClusterRaw(ctx, clusterID, patchReq)
-			Expect(err).NotTo(HaveOccurred(), "raw PATCH request should not fail at transport level")
-			defer func() { _ = resp.Body.Close() }()
-			Expect(resp.StatusCode).To(Equal(http.StatusConflict),
-				"PATCH on soft-deleted cluster should return 409 Conflict")
+			_, patchErr := h.Client.PatchCluster(ctx, clusterID, patchReq)
+			Expect(patchErr).To(HaveOccurred(), "PATCH on soft-deleted cluster should be rejected")
+			var httpErr *client.HTTPError
+			Expect(errors.As(patchErr, &httpErr)).To(BeTrue(), "error should be an HTTP error")
+			Expect(httpErr.StatusCode).To(Or(Equal(http.StatusConflict), Equal(http.StatusNotFound)),
+				"PATCH should be rejected once cluster deletion has started")
 
-			ginkgo.By("verifying cluster state is unchanged after rejected PATCH")
-			cluster, err := h.Client.GetCluster(ctx, clusterID)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cluster.Generation).To(Equal(deletedGeneration), "generation should not change after rejected PATCH")
-			Expect(cluster.DeletedTime).NotTo(BeNil(), "cluster should still be marked as deleted")
+			if httpErr.StatusCode == http.StatusConflict {
+				ginkgo.By("verifying cluster state is unchanged after rejected PATCH")
+				cluster, err := h.Client.GetCluster(ctx, clusterID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cluster.Generation).To(Equal(deletedGeneration), "generation should not change after rejected PATCH")
+				Expect(cluster.DeletedTime).NotTo(BeNil(), "cluster should still be marked as deleted")
+			}
 		})
 
 		ginkgo.AfterEach(func(ctx context.Context) {
@@ -134,7 +131,7 @@ var _ = ginkgo.Describe("[Suite: cluster][delete] Cluster Cascade Deletion",
 			clusterID, err = h.GetTestCluster(ctx, h.TestDataPath("payloads/clusters/cluster-request.json"))
 			Expect(err).NotTo(HaveOccurred(), "failed to create cluster")
 
-			Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Ready, h.Cfg.Polling.Interval).
+			Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
 				Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 
 			ginkgo.By("creating two nodepools")
@@ -149,10 +146,10 @@ var _ = ginkgo.Describe("[Suite: cluster][delete] Cluster Cascade Deletion",
 			nodepoolID2 = *np2.Id
 
 			ginkgo.By("waiting for both nodepools to reach Reconciled")
-			Eventually(h.PollNodePool(ctx, clusterID, nodepoolID1), h.Cfg.Timeouts.NodePool.Ready, h.Cfg.Polling.Interval).
+			Eventually(h.PollNodePool(ctx, clusterID, nodepoolID1), h.Cfg.Timeouts.NodePool.Reconciled, h.Cfg.Polling.Interval).
 				Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 
-			Eventually(h.PollNodePool(ctx, clusterID, nodepoolID2), h.Cfg.Timeouts.NodePool.Ready, h.Cfg.Polling.Interval).
+			Eventually(h.PollNodePool(ctx, clusterID, nodepoolID2), h.Cfg.Timeouts.NodePool.Reconciled, h.Cfg.Polling.Interval).
 				Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 		})
 

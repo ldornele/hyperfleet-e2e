@@ -116,8 +116,3 @@ func (c *HyperFleetClient) PatchNodePoolFromPayload(ctx context.Context, cluster
 
 	return c.PatchNodePool(ctx, clusterID, nodepoolID, *req)
 }
-
-// PatchNodePoolRaw sends a PATCH request and returns the raw HTTP response for status inspection.
-func (c *HyperFleetClient) PatchNodePoolRaw(ctx context.Context, clusterID, nodepoolID string, req openapi.NodePoolPatchRequest) (*http.Response, error) {
-	return c.PatchNodePoolById(ctx, clusterID, nodepoolID, req)
-}

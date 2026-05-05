@@ -27,7 +27,7 @@ var _ = ginkgo.Describe("[Suite: cluster][update] Cluster Update Lifecycle",
 			Expect(cluster.Id).NotTo(BeNil(), "cluster ID should be generated")
 			clusterID = *cluster.Id
 
-			Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Ready, h.Cfg.Polling.Interval).
+			Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
 				Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 		})
 
@@ -42,6 +42,8 @@ var _ = ginkgo.Describe("[Suite: cluster][update] Cluster Update Lifecycle",
 			Expect(err).NotTo(HaveOccurred(), "PATCH request should succeed")
 			expectedGen := clusterBefore.Generation + 1
 			Expect(patchedCluster.Generation).To(Equal(expectedGen), "generation should increment after PATCH")
+			Expect(patchedCluster.Spec).To(HaveKey("dns"),
+				"PATCH response should reflect updated spec fields")
 
 			ginkgo.By("waiting for all adapters to reconcile at new generation")
 			Eventually(h.PollClusterAdapterStatuses(ctx, clusterID), h.Cfg.Timeouts.Adapter.Processing, h.Cfg.Polling.Interval).
@@ -52,6 +54,7 @@ var _ = ginkgo.Describe("[Suite: cluster][update] Cluster Update Lifecycle",
 				finalCluster, err := h.Client.GetCluster(ctx, clusterID)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(finalCluster.Generation).To(Equal(expectedGen), "final cluster generation should match expected")
+				g.Expect(finalCluster.Status).NotTo(BeNil(), "cluster status should be present")
 
 				found := false
 				for _, cond := range finalCluster.Status.Conditions {
@@ -61,7 +64,7 @@ var _ = ginkgo.Describe("[Suite: cluster][update] Cluster Update Lifecycle",
 					}
 				}
 				g.Expect(found).To(BeTrue(), "cluster should have Reconciled=True")
-			}, h.Cfg.Timeouts.Cluster.Ready, h.Cfg.Polling.Interval).Should(Succeed())
+			}, h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).Should(Succeed())
 		})
 
 		ginkgo.AfterEach(func(ctx context.Context) {

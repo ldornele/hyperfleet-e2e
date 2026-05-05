@@ -154,13 +154,13 @@ post:
                 : "False"
             reason:
               expression: |
-                !is_deleting ? ""
+                !is_deleting ? "NotDeleting"
                 : !resources.?clusterNamespace.hasValue()
                   ? "CleanupConfirmed"
                   : "CleanupInProgress"
             message:
               expression: |
-                !is_deleting ? ""
+                !is_deleting ? "Resource not marked for deletion"
                 : !resources.?clusterNamespace.hasValue()
                   ? "All resources deleted; cleanup confirmed"
                   : "Deletion in progress; waiting for namespace to be removed"

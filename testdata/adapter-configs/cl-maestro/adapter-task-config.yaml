@@ -166,7 +166,7 @@ post:
                   ? "Resources skipped: " + adapter.?skipReason.orValue("unknown reason")
                   : "Adapter execution completed successfully"
 
-          # Finalized: True once ManifestWork is confirmed deleted
+          # Finalized: True once ManifestWork and all spoke resources are confirmed deleted
           - type: "Finalized"
             status:
               expression: |
@@ -174,20 +174,26 @@ post:
                   && adapter.?executionStatus.orValue("") == "success"
                   && !adapter.?resourcesSkipped.orValue(false)
                   && !resources.?resource0.hasValue()
+                  && !resources.?namespace0.hasValue()
+                  && !resources.?configmap0.hasValue()
                 ? "True"
                 : "False"
             reason:
               expression: |
-                !is_deleting ? ""
+                !is_deleting ? "NotDeleting"
                 : !resources.?resource0.hasValue()
+                  && !resources.?namespace0.hasValue()
+                  && !resources.?configmap0.hasValue()
                   ? "CleanupConfirmed"
                   : "CleanupInProgress"
             message:
               expression: |
-                !is_deleting ? ""
+                !is_deleting ? "Resource not marked for deletion"
                 : !resources.?resource0.hasValue()
+                  && !resources.?namespace0.hasValue()
+                  && !resources.?configmap0.hasValue()
                   ? "All resources deleted; cleanup confirmed"
-                  : "Deletion in progress; waiting for ManifestWork to be removed"
+                  : "Deletion in progress; waiting for resources to be removed"
 
         observed_generation:
           expression: "generation"

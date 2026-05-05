@@ -8,7 +8,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/api/openapi"
 	"github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/client"
 	k8sclient "github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/client/kubernetes"
 	"github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/client/maestro"
@@ -173,17 +172,6 @@ func (h *Helper) CleanupTestCluster(ctx context.Context, clusterID string) error
 
 	logger.Info("successfully cleaned up cluster resources", "cluster_id", clusterID)
 	return nil
-}
-
-// GetTestNodePool creates a nodepool on the specified cluster from a payload file
-func (h *Helper) GetTestNodePool(ctx context.Context, clusterID, payloadPath string) (*openapi.NodePool, error) {
-	return h.Client.CreateNodePoolFromPayload(ctx, clusterID, payloadPath)
-}
-
-// CleanupTestNodePool cleans up test nodepool
-func (h *Helper) CleanupTestNodePool(ctx context.Context, clusterID, nodepoolID string) error {
-	_, err := h.Client.DeleteNodePool(ctx, clusterID, nodepoolID)
-	return err
 }
 
 // GetMaestroClient returns the Maestro client, initializing it lazily on first access

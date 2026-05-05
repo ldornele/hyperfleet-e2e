@@ -138,9 +138,9 @@ Use `ginkgo.By()` for major steps ONLY. Do NOT use inside `Eventually` closures:
 
 ```go
 // CORRECT
-ginkgo.By("waiting for cluster to become Ready")
+ginkgo.By("waiting for cluster to become Reconciled")
 Eventually(h.PollCluster(ctx, clusterID), timeout, h.Cfg.Polling.Interval).
-    Should(helper.HaveResourceCondition(client.ConditionTypeReady, openapi.ResourceConditionStatusTrue))
+    Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 
 // INCORRECT - never do this
 Eventually(func() {
@@ -155,11 +155,11 @@ Use **pollers** (thin functions returning current state) with **custom matchers*
 
 **Wait for a resource condition** (cluster or nodepool):
 ```go
-Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Ready, h.Cfg.Polling.Interval).
+Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
     Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 
-Eventually(h.PollNodePool(ctx, clusterID, npID), h.Cfg.Timeouts.NodePool.Ready, h.Cfg.Polling.Interval).
-    Should(helper.HaveResourceCondition(client.ConditionTypeReady, openapi.ResourceConditionStatusTrue))
+Eventually(h.PollNodePool(ctx, clusterID, npID), h.Cfg.Timeouts.NodePool.Reconciled, h.Cfg.Polling.Interval).
+    Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 ```
 
 **Wait for adapter conditions** (works for both cluster and nodepool adapters):
@@ -310,7 +310,7 @@ clusterID = *cluster.Id
 ### Wait for Condition
 
 ```go
-Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Ready, h.Cfg.Polling.Interval).
+Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
     Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 ```
 

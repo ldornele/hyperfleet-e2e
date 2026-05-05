@@ -215,13 +215,13 @@ post:
                 : "False"
             reason:
               expression: |
-                !is_deleting ? ""
+                !is_deleting ? "NotDeleting"
                 : !resources.?testJob.hasValue() && !resources.?jobServiceAccount.hasValue() && !resources.?jobRole.hasValue() && !resources.?jobRolebinding.hasValue()
                   ? "CleanupConfirmed"
                   : "CleanupInProgress"
             message:
               expression: |
-                !is_deleting ? ""
+                !is_deleting ? "Resource not marked for deletion"
                 : !resources.?testJob.hasValue() && !resources.?jobServiceAccount.hasValue() && !resources.?jobRole.hasValue() && !resources.?jobRolebinding.hasValue()
                   ? "All resources deleted; cleanup confirmed"
                   : "Deletion in progress; waiting for resources to be removed"
