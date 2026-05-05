@@ -72,6 +72,7 @@ import (
     . "github.com/onsi/gomega"
 
     "github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/api/openapi"
+	"github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/client"
     "github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/helper"
     "github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/labels"
 )
