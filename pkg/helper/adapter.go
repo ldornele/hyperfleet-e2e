@@ -221,12 +221,16 @@ func (h *Helper) UninstallAdapter(ctx context.Context, releaseName, namespace st
 
 // cleanupClusterScopedResources removes orphaned cluster-scoped resources that may be left
 // after Helm uninstall. This is a best-effort cleanup and logs errors without failing.
+// Uses label selectors instead of names so it works regardless of the chart's naming scheme.
 func (h *Helper) cleanupClusterScopedResources(ctx context.Context, releaseName string) {
 	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
+	labelSelector := fmt.Sprintf("app.kubernetes.io/instance=%s", releaseName)
+
 	// Try to delete ClusterRole
-	clusterRoleCmd := exec.CommandContext(cmdCtx, "kubectl", "delete", "clusterrole", releaseName,
+	clusterRoleCmd := exec.CommandContext(cmdCtx, "kubectl", "delete", "clusterrole", //nolint:gosec // labelSelector is derived from releaseName, not user input
+		"-l", labelSelector,
 		"--ignore-not-found=true")
 	if output, err := clusterRoleCmd.CombinedOutput(); err != nil {
 		logger.Info("could not delete ClusterRole (may not exist)",
@@ -237,7 +241,8 @@ func (h *Helper) cleanupClusterScopedResources(ctx context.Context, releaseName 
 	}
 
 	// Try to delete ClusterRoleBinding
-	clusterRoleBindingCmd := exec.CommandContext(cmdCtx, "kubectl", "delete", "clusterrolebinding", releaseName,
+	clusterRoleBindingCmd := exec.CommandContext(cmdCtx, "kubectl", "delete", "clusterrolebinding", //nolint:gosec // labelSelector is derived from releaseName, not user input
+		"-l", labelSelector,
 		"--ignore-not-found=true")
 	if output, err := clusterRoleBindingCmd.CombinedOutput(); err != nil {
 		logger.Info("could not delete ClusterRoleBinding (may not exist)",
