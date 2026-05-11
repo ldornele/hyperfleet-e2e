@@ -6,8 +6,11 @@
 # (API, Sentinel, and Adapters) using Helm for E2E testing environments.
 #
 # Usage:
-#   ./deploy-clm.sh --action install --namespace hyperfleet-e2e
-#   ./deploy-clm.sh --action uninstall --namespace hyperfleet-e2e --dry-run
+#   ./deploy-clm.sh --action install
+#   ./deploy-clm.sh --action uninstall --dry-run --namespace <unique_namespace>
+#
+# Set NAMESPACE in .env file or use --namespace flag.
+# Each deployment requires a unique namespace to prevent GCP Pub/Sub resource collisions.
 
 set -euo pipefail
 
@@ -38,7 +41,7 @@ fi
 # ============================================================================
 
 ACTION="${ACTION:-}"
-NAMESPACE="${NAMESPACE:-hyperfleet-e2e}"
+NAMESPACE="${NAMESPACE:-}"
 DRY_RUN="${DRY_RUN:-false}"
 VERBOSE="${VERBOSE:-false}"
 
@@ -127,13 +130,16 @@ Automated deployment script for HyperFleet CLM components (API, Sentinel, Adapte
 
 CONFIGURATION:
     This script loads configuration from ${SCRIPT_DIR}/.env file.
-    You can override any .env value using command-line flags.
+    Command-line flags override .env values.
+
+    NAMESPACE should be unique to prevent GCP Pub/Sub collisions.
+    Recommended: set NAMESPACE=hyperfleet-e2e-\$USER in .env file.
 
 REQUIRED FLAGS:
     --action <action>               Action to perform: install or uninstall
 
 OPTIONAL FLAGS:
-    --namespace <namespace>         Kubernetes namespace (default: hyperfleet-e2e)
+    --namespace <namespace>         Kubernetes namespace (default from .env: ${NAMESPACE})
 
     # Component Selection
     --skip-api                      Skip API installation
@@ -196,38 +202,37 @@ ENVIRONMENT VARIABLES:
     - ADAPTER_BROKER_RABBITMQ_URL            RabbitMQ AMQP URL for Adapters
 
 EXAMPLES:
-    # Install all components with default settings
-    ${0##*/} --action install --namespace hyperfleet-e2e
+    # Install with .env defaults
+    ${0##*/} --action install
+
+    # Install with explicit namespace
+    ${0##*/} --action install --namespace <unique_namespace>
 
     # Install with custom image tags
     ${0##*/} --action install \\
-        --namespace test-env \\
+        --namespace <unique_namespace> \\
         --api-image-tag v1.0.0 \\
         --sentinel-image-tag v1.0.0 \\
         --adapter-image-tag v1.0.0
 
     # Install only API and Sentinel
-    ${0##*/} --action install --skip-adapter
+    ${0##*/} --action install --namespace <unique_namespace> --skip-adapter
 
-    # Dry-run uninstallation
-    ${0##*/} --action uninstall --namespace hyperfleet-e2e --dry-run --verbose
+    # Dry-run to preview actions
+    ${0##*/} --action uninstall --namespace <unique_namespace> --dry-run --verbose
 
-    # Delete Kubernetes resources (Helm releases + namespace)
-    ${0##*/} --action uninstall --namespace hyperfleet-e2e --delete-k8s-resources
+    # Delete Kubernetes resources
+    ${0##*/} --action uninstall --namespace <unique_namespace> --delete-k8s-resources
 
-    # Delete GCP Pub/Sub resources (topics and subscriptions)
-    ${0##*/} --action uninstall --namespace hyperfleet-e2e --delete-cloud-resources
+    # Delete GCP Pub/Sub resources
+    ${0##*/} --action uninstall --namespace <unique_namespace> --delete-cloud-resources
 
-    # Complete cleanup: delete everything (k8s + cloud resources)
-    ${0##*/} --action uninstall --namespace hyperfleet-e2e --all
+    # Complete cleanup: delete everything
+    ${0##*/} --action uninstall --namespace <unique_namespace> --all
 
-    # Or explicitly specify both
-    ${0##*/} --action uninstall --namespace hyperfleet-e2e \\
-        --delete-k8s-resources \\
-        --delete-cloud-resources
-
-    # Install with custom image repositories
+    # Install with custom image repository
     ${0##*/} --action install \\
+        --namespace <unique_namespace> \\
         --api-image-repo myregistry.io/hyperfleet-api \\
         --api-image-tag dev-123
 
@@ -358,6 +363,19 @@ parse_arguments() {
         log_error "Missing required flag: --action"
         echo
         print_usage
+        exit 1
+    fi
+
+    # Validate NAMESPACE variable is set
+    if [[ -z "${NAMESPACE}" ]]; then
+        log_error "Missing required flag: --namespace or env variable NAMESPACE"
+        echo
+        print_usage
+        exit 1
+    fi
+
+    if (( ${#NAMESPACE} > 63 )) || [[ ! "${NAMESPACE}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
+        log_error "Invalid namespace: '${NAMESPACE}'. Must match DNS-1123 label format and be <= 63 chars."
         exit 1
     fi
 

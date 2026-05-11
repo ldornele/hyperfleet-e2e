@@ -39,14 +39,14 @@ Ensure you have:
 Install all components with default settings:
 
 ```bash
-./deploy-scripts/deploy-clm.sh --action install --namespace hyperfleet-e2e
+./deploy-scripts/deploy-clm.sh --action install --namespace <unique_namespace>
 ```
 
 Install with custom image tags:
 
 ```bash
 ./deploy-scripts/deploy-clm.sh --action install \
-    --namespace my-test-env \
+    --namespace <unique_namespace> \
     --api-image-tag v1.2.0 \
     --sentinel-image-tag v1.2.0 \
     --adapter-image-tag v1.2.0
@@ -55,7 +55,7 @@ Install with custom image tags:
 Uninstall all components:
 
 ```bash
-./deploy-scripts/deploy-clm.sh --action uninstall --namespace hyperfleet-e2e
+./deploy-scripts/deploy-clm.sh --action uninstall --namespace <unique_namespace>
 ```
 
 ### Option 2: Using .env File (Recommended for Complex Configurations)
@@ -74,7 +74,7 @@ For easier management of deployment parameters, use a `.env` file:
    ```
 
    Key parameters you can configure:
-   - `NAMESPACE` - Kubernetes namespace (default: `hyperfleet-e2e`)
+   - `NAMESPACE` - Kubernetes namespace (default: `hyperfleet-e2e-$USER`)
    - `IMAGE_REGISTRY` - Container image registry
    - `API_IMAGE_TAG`, `SENTINEL_IMAGE_TAG`, `ADAPTER_IMAGE_TAG` - Image tags
    - `GCP_PROJECT_ID` - Google Cloud Project ID for Pub/Sub
@@ -114,7 +114,7 @@ For basic usage, see [Quick Start](#quick-start) section above.
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--namespace <namespace>` | Kubernetes namespace for deployment | `hyperfleet-e2e` |
+| `--namespace <namespace>` | Kubernetes namespace for deployment | `hyperfleet-e2e-$USER` |
 | `--dry-run` | Print commands without executing | `false` |
 | `--verbose` | Enable verbose logging | `false` |
 | `--help` | Show help message | - |
@@ -151,7 +151,7 @@ For basic usage, see [Quick Start](#quick-start) section above.
 #### 1. Install with Default Settings
 
 ```bash
-./deploy-scripts/deploy-clm.sh --action install --namespace hyperfleet-e2e
+./deploy-scripts/deploy-clm.sh --action install --namespace <unique_namespace>
 ```
 
 This installs all three components (API, Sentinel, Adapter) with default configurations.
@@ -160,7 +160,7 @@ This installs all three components (API, Sentinel, Adapter) with default configu
 
 ```bash
 ./deploy-scripts/deploy-clm.sh --action install \
-    --namespace test-env \
+    --namespace <unique_namespace> \
     --skip-adapter
 ```
 
@@ -168,7 +168,7 @@ This installs all three components (API, Sentinel, Adapter) with default configu
 
 ```bash
 ./deploy-scripts/deploy-clm.sh --action install \
-    --namespace staging \
+    --namespace <unique_namespace> \
     --api-image-tag v1.2.0 \
     --sentinel-image-tag v1.2.0 \
     --adapter-image-tag v1.2.0
@@ -178,7 +178,7 @@ This installs all three components (API, Sentinel, Adapter) with default configu
 
 ```bash
 ./deploy-scripts/deploy-clm.sh --action install \
-    --namespace dev-test \
+    --namespace <unique_namespace> \
     --api-image-repo myregistry.io/hyperfleet-api \
     --api-image-tag pr-123
 ```
@@ -187,7 +187,7 @@ This installs all three components (API, Sentinel, Adapter) with default configu
 
 ```bash
 ./deploy-scripts/deploy-clm.sh --action install \
-    --namespace test \
+    --namespace <unique_namespace> \
     --dry-run \
     --verbose
 ```
@@ -199,7 +199,7 @@ This simulates the installation without making any actual changes.
 #### 1. Uninstall All Components
 
 ```bash
-./deploy-scripts/deploy-clm.sh --action uninstall --namespace hyperfleet-e2e
+./deploy-scripts/deploy-clm.sh --action uninstall --namespace <unique_namespace>
 ```
 
 This removes all Helm releases.
@@ -208,7 +208,7 @@ This removes all Helm releases.
 
 ```bash
 ./deploy-scripts/deploy-clm.sh --action uninstall \
-    --namespace test-env \
+    --namespace <unique_namespace> \
     --dry-run \
     --verbose
 ```
@@ -217,7 +217,7 @@ This removes all Helm releases.
 
 ```bash
 ./deploy-scripts/deploy-clm.sh --action uninstall \
-    --namespace test-env \
+    --namespace <unique_namespace> \
     --skip-api \
     --skip-sentinel
 ```
@@ -251,15 +251,16 @@ The script leverages Helm's built-in namespace management:
 
 - **Installation**: Namespace is automatically created by Helm using the `--create-namespace` flag
 - **Uninstallation**: Resources are removed by `helm uninstall`, but the namespace is **not deleted**
+- **Uniqueness**: Each deployment requires a unique namespace to prevent GCP Pub/Sub resource collisions.
 
 If you want to completely remove the namespace after uninstallation:
 
 ```bash
 # Uninstall components
-./deploy-scripts/deploy-clm.sh --action uninstall --namespace test-env
+./deploy-scripts/deploy-clm.sh --action uninstall --namespace <unique_namespace>
 
 # Manually delete namespace if desired
-kubectl delete namespace test-env
+kubectl delete namespace <unique_namespace>
 ```
 
 This design allows you to:
@@ -275,7 +276,7 @@ Use `--dry-run --verbose` flags to see what the script would do without making c
 
 ```bash
 ./deploy-scripts/deploy-clm.sh --action install \
-    --namespace test \
+    --namespace <unique_namespace> \
     --dry-run \
     --verbose
 ```
@@ -291,7 +292,7 @@ kubectl logs -n <namespace> <pod-name>
 View script execution with bash trace:
 
 ```bash
-bash -x deploy-scripts/deploy-clm.sh --action install --namespace test
+bash -x deploy-scripts/deploy-clm.sh --action install --namespace <unique_namespace>
 ```
 
 ## Integration with E2E Tests
@@ -302,10 +303,10 @@ Before running E2E tests, deploy the CLM components:
 
 ```bash
 # Deploy test environment
-./deploy-scripts/deploy-clm.sh --action install --namespace e2e-test
+./deploy-scripts/deploy-clm.sh --action install --namespace <unique_namespace>
 
 # Configure E2E test API URL
-EXTERNAL_IP=$(kubectl get svc hyperfleet-api -n $NAMESPACE_NAME -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+EXTERNAL_IP=$(kubectl get svc hyperfleet-api -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 export HYPERFLEET_API_URL="http://${EXTERNAL_IP}:8000"
 
 # Run E2E tests
@@ -317,7 +318,7 @@ export HYPERFLEET_API_URL="http://${EXTERNAL_IP}:8000"
 After tests complete:
 
 ```bash
-./deploy-scripts/deploy-clm.sh --action uninstall --namespace e2e-test
+./deploy-scripts/deploy-clm.sh --action uninstall --namespace <unique_namespace>
 ```
 
 ## Script Output
