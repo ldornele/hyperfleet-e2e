@@ -23,10 +23,10 @@ This test validates the cluster update lifecycle end-to-end. It verifies that wh
 | **Pos/Neg** | Positive |
 | **Priority** | Tier0 |
 | **Status** | Draft |
-| **Automation** | Not Automated |
+| **Automation** | Automated |
 | **Version** | Post-MVP |
 | **Created** | 2026-04-15 |
-| **Updated** | 2026-04-28 |
+| **Updated** | 2026-04-30 |
 
 ---
 

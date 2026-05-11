@@ -76,7 +76,7 @@ import (
     . "github.com/onsi/gomega"
 
     "github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/api/openapi"
- "github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/client"
+    "github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/client"
     "github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/helper"
     "github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/labels"
 )
@@ -95,13 +95,13 @@ var _ = ginkgo.Describe(testName,
 
         ginkgo.It("should create cluster successfully", func(ctx context.Context) {
             ginkgo.By("submitting cluster creation request")
-            cluster, err := h.Client.CreateClusterFromPayload(ctx, "testdata/payloads/clusters/cluster-request.json")
+            cluster, err := h.Client.CreateClusterFromPayload(ctx, h.TestDataPath("payloads/clusters/cluster-request.json"))
             Expect(err).NotTo(HaveOccurred())
             clusterID = *cluster.Id
 
             ginkgo.By("waiting for cluster to become Reconciled")
-            err = h.WaitForClusterCondition(ctx, clusterID, client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue, h.Cfg.Timeouts.Cluster.Reconciled)
-            Expect(err).NotTo(HaveOccurred())
+            Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
+                Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
         })
 
         ginkgo.AfterEach(func(ctx context.Context) {
@@ -216,39 +216,69 @@ ginkgo.AfterEach(func(ctx context.Context) {
 ```go
 // Basic assertions
 Expect(err).NotTo(HaveOccurred())
-Expect(cluster.ID).NotTo(BeEmpty())
-Expect(h.HasResourceCondition(cluster.Status.Conditions, client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue)).To(BeTrue())
+Expect(cluster.Id).NotTo(BeNil())
+Expect(cluster.Generation).To(Equal(int32(1)))
 
-// Eventually for async operations
+// Async: use pollers + custom matchers (preferred)
+Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
+    Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
+
+// Async: use func(g Gomega) for complex one-off assertions
 Eventually(func(g Gomega) {
-    cluster, err := h.Client.GetCluster(ctx, clusterID)
+    statuses, err := h.Client.GetClusterStatuses(ctx, clusterID)
     g.Expect(err).NotTo(HaveOccurred())
-    g.Expect(h.HasResourceCondition(cluster.Status.Conditions, client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue)).To(BeTrue())
-}, h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).Should(Succeed())
+    // multi-field validation...
+}, timeout, h.Cfg.Polling.Interval).Should(Succeed())
 ```
 
 **Important**: Inside `Eventually` closures, use `g.Expect()` instead of `Expect()`
 
-## Using Helper Functions
+## Using Pollers and Matchers
 
-### Wait for Cluster Reconciled
+The framework uses **pollers** (functions that fetch current state) and **custom matchers** (reusable Gomega assertions) to compose async checks. This avoids a combinatorial explosion of `WaitFor*` helper functions.
 
-```go
-err = h.WaitForClusterCondition(ctx, clusterID, client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue, h.Cfg.Timeouts.Cluster.Reconciled)
-Expect(err).NotTo(HaveOccurred())
-```
-
-### Check Adapter Conditions
+### Wait for Resource Condition
 
 ```go
-statuses, err := h.Client.GetClusterStatuses(ctx, clusterID)
-Expect(err).NotTo(HaveOccurred())
+// Cluster
+Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
+    Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 
-for _, adapter := range statuses.Items {
-    hasApplied := h.HasCondition(adapter.Conditions, client.ConditionTypeApplied, openapi.True)
-    Expect(hasApplied).To(BeTrue())
-}
+// NodePool (same matcher, different poller)
+Eventually(h.PollNodePool(ctx, clusterID, npID), h.Cfg.Timeouts.NodePool.Reconciled, h.Cfg.Polling.Interval).
+    Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 ```
+
+### Wait for Adapter Conditions
+
+```go
+// All adapters finalized
+Eventually(h.PollClusterAdapterStatuses(ctx, clusterID), timeout, h.Cfg.Polling.Interval).
+    Should(helper.HaveAllAdaptersWithCondition(h.Cfg.Adapters.Cluster, client.ConditionTypeFinalized, openapi.AdapterConditionStatusTrue))
+
+// All adapters at a specific generation with Applied+Available+Health=True
+Eventually(h.PollClusterAdapterStatuses(ctx, clusterID), timeout, h.Cfg.Polling.Interval).
+    Should(helper.HaveAllAdaptersAtGeneration(h.Cfg.Adapters.Cluster, expectedGen))
+```
+
+### Wait for Hard-Delete
+
+```go
+Eventually(h.PollClusterHTTPStatus(ctx, clusterID), timeout, h.Cfg.Polling.Interval).
+    Should(Equal(http.StatusNotFound))
+```
+
+### Check Conditions Synchronously
+
+```go
+hasReconciled := h.HasResourceCondition(cluster.Status.Conditions, client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue)
+Expect(hasReconciled).To(BeTrue())
+
+hasApplied := h.HasAdapterCondition(adapter.Conditions, client.ConditionTypeApplied, openapi.AdapterConditionStatusTrue)
+Expect(hasApplied).To(BeTrue())
+```
+
+Available pollers: see `pkg/helper/pollers.go`. Available matchers: see `pkg/helper/matchers.go`.
 
 ## Best Practices
 
@@ -260,7 +290,7 @@ for _, adapter := range statuses.Items {
 - Clean up resources in `AfterEach`
 - Use timeout values from config
 - Store resource IDs for cleanup
-- Use helper functions when available
+- Use pollers + custom matchers for async waits (see `pkg/helper/pollers.go`, `pkg/helper/matchers.go`)
 
 ### DON'T ❌
 
@@ -269,6 +299,7 @@ for _, adapter := range statuses.Items {
 - Don't hardcode timeouts (use config values)
 - Don't skip cleanup (unless debugging)
 - Don't ignore errors
+- Don't create `WaitFor*` wrapper functions that hide `Eventually` — use pollers + matchers instead
 
 ## Adding New Tests
 
@@ -329,31 +360,31 @@ cluster, err := h.Client.CreateClusterFromPayload(ctx, "testdata/payloads/cluste
 Expect(err).NotTo(HaveOccurred())
 ```
 
-### Wait for Condition Transition
+### Wait for Condition
 
 ```go
-Eventually(func(g Gomega) {
-    cluster, err := h.Client.GetCluster(ctx, clusterID)
-    g.Expect(err).NotTo(HaveOccurred())
-    g.Expect(h.HasResourceCondition(cluster.Status.Conditions, client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue)).To(BeTrue())
-}, timeout, pollInterval).Should(Succeed())
+Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
+    Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 ```
 
-### Verify All Adapter Conditions
+### Wait for All Adapters at Generation
+
+```go
+Eventually(h.PollClusterAdapterStatuses(ctx, clusterID), h.Cfg.Timeouts.Adapter.Processing, h.Cfg.Polling.Interval).
+    Should(helper.HaveAllAdaptersAtGeneration(h.Cfg.Adapters.Cluster, expectedGen))
+```
+
+### Verify Adapter Conditions Synchronously
 
 ```go
 statuses, err := h.Client.GetClusterStatuses(ctx, clusterID)
 Expect(err).NotTo(HaveOccurred())
 
 for _, adapter := range statuses.Items {
-    adapterName := adapter.Adapter
-    ginkgo.By(fmt.Sprintf("verifying adapter %s conditions", adapterName))
-
-    hasApplied := h.HasCondition(adapter.Conditions, client.ConditionTypeApplied, openapi.True)
-    Expect(hasApplied).To(BeTrue(), "adapter %s should have Applied=True", adapterName)
-
-    hasAvailable := h.HasCondition(adapter.Conditions, client.ConditionTypeAvailable, openapi.True)
-    Expect(hasAvailable).To(BeTrue(), "adapter %s should have Available=True", adapterName)
+    Expect(h.HasAdapterCondition(adapter.Conditions, client.ConditionTypeApplied, openapi.AdapterConditionStatusTrue)).To(BeTrue(),
+        "adapter %s should have Applied=True", adapter.Adapter)
+    Expect(h.HasAdapterCondition(adapter.Conditions, client.ConditionTypeAvailable, openapi.AdapterConditionStatusTrue)).To(BeTrue(),
+        "adapter %s should have Available=True", adapter.Adapter)
 }
 ```
 

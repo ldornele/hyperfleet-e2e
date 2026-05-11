@@ -20,10 +20,10 @@ This test validates the nodepool update lifecycle. It verifies that when a PATCH
 | **Pos/Neg** | Positive |
 | **Priority** | Tier0 |
 | **Status** | Draft |
-| **Automation** | Not Automated |
+| **Automation** | Automated |
 | **Version** | Post-MVP |
 | **Created** | 2026-04-15 |
-| **Updated** | 2026-04-28 |
+| **Updated** | 2026-04-30 |
 
 ---
 

@@ -1,0 +1,50 @@
+{
+  "spec": {
+    "platform": {
+      "type": "gcp",
+      "gcp": {
+        "projectID": "my-gcp-project",
+        "region": "us-central1",
+        "zone": "us-central1-a",
+        "network": "default",
+        "subnet": "default-subnet",
+        "subnets": [
+          {
+            "id": "subnet-control-plane-01",
+            "name": "control-plane",
+            "cidr": "10.0.1.0/24",
+            "role": "control-plane"
+          },
+          {
+            "id": "subnet-worker-01",
+            "name": "worker-nodes",
+            "cidr": "10.0.2.0/24",
+            "role": "worker"
+          },
+          {
+            "id": "subnet-service-01",
+            "name": "service-mesh",
+            "cidr": "10.0.3.0/24",
+            "role": "service"
+          }
+        ]
+      }
+    },
+    "release": {
+      "image": "registry.redhat.io/openshift4/ose-cluster-version-operator:v4.15.0",
+      "version": "4.15.0"
+    },
+    "networking": {
+      "clusterNetwork": [
+        {
+          "cidr": "10.10.0.0/16",
+          "hostPrefix": 24
+        }
+      ],
+      "serviceNetwork": ["10.96.0.0/12"]
+    },
+    "dns": {
+      "baseDomain": "example.com"
+    }
+  }
+}

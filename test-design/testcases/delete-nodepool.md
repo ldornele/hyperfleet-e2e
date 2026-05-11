@@ -26,10 +26,10 @@ This test validates the complete nodepool deletion lifecycle. It verifies that w
 | **Pos/Neg** | Positive |
 | **Priority** | Tier0 |
 | **Status** | Draft |
-| **Automation** | Not Automated |
+| **Automation** | Automated |
 | **Version** | Post-MVP |
 | **Created** | 2026-04-15 |
-| **Updated** | 2026-04-15 |
+| **Updated** | 2026-04-30 |
 
 ---
 

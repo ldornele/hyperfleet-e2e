@@ -147,15 +147,8 @@ var _ = ginkgo.Describe("[Suite: nodepool][baseline] NodePool Resource Type Life
 					ginkgo.By("Verify final nodepool state")
 					// Wait for nodepool Reconciled condition and verify both Reconciled and Available conditions are True
 					// This confirms the nodepool has reached the desired end state
-					err = h.WaitForNodePoolCondition(
-						ctx,
-						clusterID,
-						nodepoolID,
-						client.ConditionTypeReconciled,
-						openapi.ResourceConditionStatusTrue,
-						h.Cfg.Timeouts.NodePool.Reconciled,
-					)
-					Expect(err).NotTo(HaveOccurred(), "nodepool Reconciled condition should transition to True")
+					Eventually(h.PollNodePool(ctx, clusterID, nodepoolID), h.Cfg.Timeouts.NodePool.Reconciled, h.Cfg.Polling.Interval).
+						Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 
 					finalNodePool, err := h.Client.GetNodePool(ctx, clusterID, nodepoolID)
 					Expect(err).NotTo(HaveOccurred(), "failed to get final nodepool state")
@@ -239,43 +232,19 @@ var _ = ginkgo.Describe("[Suite: nodepool][baseline] NodePool Resource Type Life
 					// Wait for nodepool Reconciled condition and verify both Reconciled and Available conditions are True
 					// This confirms the nodepool workflow completed successfully and all K8s resources were created
 					// Without this, adapters may still be creating resources during cleanup
-					err := h.WaitForNodePoolCondition(
-						ctx,
-						clusterID,
-						nodepoolID,
-						client.ConditionTypeReconciled,
-						openapi.ResourceConditionStatusTrue,
-						h.Cfg.Timeouts.NodePool.Reconciled,
-					)
-					Expect(err).NotTo(HaveOccurred(), "nodepool Reconciled condition should transition to True")
+					Eventually(h.PollNodePool(ctx, clusterID, nodepoolID), h.Cfg.Timeouts.NodePool.Reconciled, h.Cfg.Polling.Interval).
+						Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 				})
 		})
 
 		ginkgo.AfterEach(func(ctx context.Context) {
-			// Skip cleanup if helper not initialized or no cluster created
-			// Note: Deleting cluster will cascade delete nodepool automatically
 			if h == nil || clusterID == "" {
 				return
 			}
-
-			ginkgo.By("Verify final cluster state to ensure Reconciled before cleanup")
-			// Wait for cluster Reconciled condition to prevent namespace deletion conflicts
-			// Without this, adapters may still be creating resources during cleanup
-			// TODO Replace this workaround with clusters and nodepools API DELETE once HyperFleet API supports
-			err := h.WaitForClusterCondition(
-				ctx,
-				clusterID,
-				client.ConditionTypeReconciled,
-				openapi.ResourceConditionStatusTrue,
-				h.Cfg.Timeouts.Cluster.Reconciled,
-			)
-			if err != nil {
-				ginkgo.GinkgoWriter.Printf("WARNING: cluster %s did not reach Reconciled state before cleanup: %v\n", clusterID, err)
+			ginkgo.By("cleaning up cluster " + clusterID)
+			if err := h.CleanupTestCluster(ctx, clusterID); err != nil {
+				ginkgo.GinkgoWriter.Printf("Warning: cleanup failed for cluster %s: %v\n", clusterID, err)
 			}
-
-			ginkgo.By("cleaning up test cluster " + clusterID)
-			err = h.CleanupTestCluster(ctx, clusterID)
-			Expect(err).NotTo(HaveOccurred(), "failed to cleanup cluster %s", clusterID)
 		})
 	},
 )

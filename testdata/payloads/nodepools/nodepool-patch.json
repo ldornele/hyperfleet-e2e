@@ -1,0 +1,10 @@
+{
+  "spec": {
+    "replicas": 3,
+    "machineType": "n1-standard-16",
+    "labels": {
+      "node-role": "worker",
+      "gpu-enabled": "true"
+    }
+  }
+}

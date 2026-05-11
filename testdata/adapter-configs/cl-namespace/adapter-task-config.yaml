@@ -31,6 +31,8 @@ preconditions:
         field: "name"
       - name: "generationSpec"
         field: "generation"
+      - name: "is_deleting"
+        expression: "has(clusterStatus.deleted_time)"
       - name: "clusterNotReconciled"
         expression: |
           status.conditions.filter(c, c.type == "Reconciled").size() > 0
@@ -47,7 +49,7 @@ preconditions:
   - name: "validationCheck"
     # Precondition passes if cluster is NOT Reconciled OR if cluster is Reconciled and stable for >300 seconds since last transition (enables self-healing)
     expression: |
-      clusterNotReconciled || clusterReconciledTTL
+      is_deleting || clusterNotReconciled || clusterReconciledTTL
 
 # Resources with valid K8s manifests
 resources:
@@ -73,6 +75,11 @@ resources:
         label_selector:
           hyperfleet.io/cluster-id: "{{ .clusterId }}"
           hyperfleet.io/cluster-name: "{{ .clusterName }}"
+    lifecycle:
+      delete:
+        propagationPolicy: Foreground
+        when:
+          expression: "is_deleting"
 
 # Post-processing with valid CEL expressions
 # This example contains multiple resources, we will only report on the conditions of the jobNamespace not to overcomplicate the example
@@ -112,13 +119,51 @@ post:
           - type: "Health"
             status:
               expression: |
-                adapter.?executionStatus.orValue("") == "success" ? "True" : "False"
+                adapter.?executionStatus.orValue("") == "success"
+                  && !adapter.?resourcesSkipped.orValue(false)
+                ? "True"
+                : "False"
             reason:
               expression: |
-                adapter.?errorReason.orValue("") != "" ? adapter.?errorReason.orValue("") : "Healthy"
+                adapter.?executionStatus.orValue("") != "success"
+                ? "ExecutionFailed:" + adapter.?executionError.?phase.orValue("unknown")
+                : adapter.?resourcesSkipped.orValue(false)
+                  ? "ResourcesSkipped"
+                  : "Healthy"
             message:
               expression: |
-                adapter.?errorMessage.orValue("") != "" ? adapter.?errorMessage.orValue("") : "All adapter operations in progress or completed successfully"
+                adapter.?executionStatus.orValue("") != "success"
+                ? "Adapter failed at phase ["
+                    + adapter.?executionError.?phase.orValue("unknown")
+                    + "] step ["
+                    + adapter.?executionError.?step.orValue("unknown")
+                    + "]: "
+                    + adapter.?executionError.?message.orValue(adapter.?errorMessage.orValue("no details"))
+                : adapter.?resourcesSkipped.orValue(false)
+                  ? "Resources skipped: " + adapter.?skipReason.orValue("unknown reason")
+                  : "Adapter execution completed successfully"
+          # Finalized: True once namespace is confirmed deleted
+          - type: "Finalized"
+            status:
+              expression: |
+                is_deleting
+                  && adapter.?executionStatus.orValue("") == "success"
+                  && !adapter.?resourcesSkipped.orValue(false)
+                  && !resources.?clusterNamespace.hasValue()
+                ? "True"
+                : "False"
+            reason:
+              expression: |
+                !is_deleting ? "NotDeleting"
+                : !resources.?clusterNamespace.hasValue()
+                  ? "CleanupConfirmed"
+                  : "CleanupInProgress"
+            message:
+              expression: |
+                !is_deleting ? "Resource not marked for deletion"
+                : !resources.?clusterNamespace.hasValue()
+                  ? "All resources deleted; cleanup confirmed"
+                  : "Deletion in progress; waiting for namespace to be removed"
         # Event generation ID metadata field needs to use expression to avoid interpolation issues
         observed_generation:
           expression: "generationSpec"

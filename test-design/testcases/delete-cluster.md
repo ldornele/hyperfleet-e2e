@@ -36,10 +36,10 @@ This test validates the complete cluster deletion lifecycle end-to-end. It verif
 | **Pos/Neg** | Positive |
 | **Priority** | Tier0 |
 | **Status** | Draft |
-| **Automation** | Not Automated |
+| **Automation** | Automated |
 | **Version** | Post-MVP |
 | **Created** | 2026-04-15 |
-| **Updated** | 2026-04-15 |
+| **Updated** | 2026-04-30 |
 
 ---
 
@@ -159,10 +159,10 @@ This test validates hierarchical deletion behavior. When a cluster is deleted, t
 | **Pos/Neg** | Positive |
 | **Priority** | Tier0 |
 | **Status** | Draft |
-| **Automation** | Not Automated |
+| **Automation** | Automated |
 | **Version** | Post-MVP |
 | **Created** | 2026-04-15 |
-| **Updated** | 2026-04-15 |
+| **Updated** | 2026-04-30 |
 
 ---
 

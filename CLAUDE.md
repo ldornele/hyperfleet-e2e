@@ -139,7 +139,8 @@ Use `ginkgo.By()` for major steps ONLY. Do NOT use inside `Eventually` closures:
 ```go
 // CORRECT
 ginkgo.By("waiting for cluster to become Reconciled")
-err := h.WaitForClusterCondition(ctx, clusterID, client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue, timeout)
+Eventually(h.PollCluster(ctx, clusterID), timeout, h.Cfg.Polling.Interval).
+    Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 
 // INCORRECT - never do this
 Eventually(func() {
@@ -148,17 +149,54 @@ Eventually(func() {
 }).Should(Succeed())
 ```
 
-### Async Operations
+### Async Operations — Pollers + Custom Matchers
 
-Use `Eventually` with `g.Expect()` (not `Expect()`):
+Use **pollers** (thin functions returning current state) with **custom matchers** (reusable assertions). This keeps `Eventually` visible at the call site and avoids combinatorial helper function explosion.
 
+**Wait for a resource condition** (cluster or nodepool):
+```go
+Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
+    Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
+
+Eventually(h.PollNodePool(ctx, clusterID, npID), h.Cfg.Timeouts.NodePool.Reconciled, h.Cfg.Polling.Interval).
+    Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
+```
+
+**Wait for adapter conditions** (works for both cluster and nodepool adapters):
+```go
+Eventually(h.PollClusterAdapterStatuses(ctx, clusterID), timeout, h.Cfg.Polling.Interval).
+    Should(helper.HaveAllAdaptersWithCondition(h.Cfg.Adapters.Cluster, client.ConditionTypeFinalized, openapi.AdapterConditionStatusTrue))
+
+Eventually(h.PollNodePoolAdapterStatuses(ctx, clusterID, npID), timeout, h.Cfg.Polling.Interval).
+    Should(helper.HaveAllAdaptersAtGeneration(h.Cfg.Adapters.NodePool, expectedGen))
+```
+
+**Wait for hard-delete** (resource returns 404):
+```go
+Eventually(h.PollClusterHTTPStatus(ctx, clusterID), timeout, h.Cfg.Polling.Interval).
+    Should(Equal(http.StatusNotFound))
+```
+
+**Wait for namespace cleanup**:
+```go
+Eventually(h.PollNamespacesByPrefix(ctx, clusterID), timeout, h.Cfg.Polling.Interval).
+    Should(BeEmpty())
+```
+
+**For one-off complex assertions**, use `Eventually` with `func(g Gomega)` and `g.Expect()` (not `Expect()`):
 ```go
 Eventually(func(g Gomega) {
-    cluster, err := h.Client.GetCluster(ctx, clusterID)
+    statuses, err := h.Client.GetClusterStatuses(ctx, clusterID)
     g.Expect(err).NotTo(HaveOccurred())
-    g.Expect(h.HasResourceCondition(cluster.Status.Conditions, client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue)).To(BeTrue())
-}, timeout, pollInterval).Should(Succeed())
+    // complex multi-field validation...
+}, timeout, h.Cfg.Polling.Interval).Should(Succeed())
 ```
+
+Available pollers: `PollCluster`, `PollNodePool`, `PollClusterAdapterStatuses`, `PollNodePoolAdapterStatuses`, `PollClusterHTTPStatus`, `PollNodePoolHTTPStatus`, `PollNamespacesByPrefix` — see `pkg/helper/pollers.go`.
+
+Available matchers: `HaveResourceCondition`, `HaveAllAdaptersWithCondition`, `HaveAllAdaptersAtGeneration` — see `pkg/helper/matchers.go`.
+
+**Do NOT** create `WaitFor*` wrapper functions that hide `Eventually` inside helpers.
 
 ### Resource Cleanup
 
@@ -202,10 +240,11 @@ Available variables: `.Random`, `.Timestamp`. See `pkg/client/payload.go`.
 - **Use `ginkgo.By()` in `Eventually`**: Only use at top-level test steps
 - **Import test packages**: Do NOT import `e2e/*` packages in production code
 - **Edit OpenAPI schema**: Schema is maintained in hyperfleet-api repo
+- **Create `WaitFor*` wrapper functions**: Use pollers + custom matchers instead (see Async Operations)
 
 ### DO
 
-- **Use helper functions**: Prefer `h.WaitForClusterCondition()` over manual polling
+- **Use pollers + matchers**: Prefer `Eventually(h.PollCluster(...)).Should(helper.HaveResourceCondition(...))` over raw `Eventually` with inline closures
 - **Use config values**: `h.Cfg.Timeouts.*` for timeouts, `h.Cfg.Polling.*` for intervals
 - **Store resource IDs**: Save IDs in variables for cleanup
 - **Check errors**: Use `Expect(err).NotTo(HaveOccurred())`
@@ -271,20 +310,22 @@ clusterID = *cluster.Id
 ### Wait for Condition
 
 ```go
-err = h.WaitForClusterCondition(ctx, clusterID, client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue, h.Cfg.Timeouts.Cluster.Reconciled)
-Expect(err).NotTo(HaveOccurred())
+Eventually(h.PollCluster(ctx, clusterID), h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).
+    Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 ```
 
-### Verify Conditions
+### Wait for All Adapters
 
 ```go
-statuses, err := h.Client.GetClusterStatuses(ctx, clusterID)
-Expect(err).NotTo(HaveOccurred())
+Eventually(h.PollClusterAdapterStatuses(ctx, clusterID), h.Cfg.Timeouts.Adapter.Processing, h.Cfg.Polling.Interval).
+    Should(helper.HaveAllAdaptersAtGeneration(h.Cfg.Adapters.Cluster, expectedGen))
+```
 
-for _, adapter := range statuses.Items {
-    hasApplied := h.HasCondition(adapter.Conditions, client.ConditionTypeApplied, openapi.True)
-    Expect(hasApplied).To(BeTrue())
-}
+### Verify Conditions (synchronous)
+
+```go
+hasReconciled := h.HasResourceCondition(cluster.Status.Conditions, client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue)
+Expect(hasReconciled).To(BeTrue())
 ```
 
 ## Documentation
