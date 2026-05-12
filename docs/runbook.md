@@ -153,6 +153,14 @@ export NODEPOOL_TIER0_ADAPTERS_DEPLOYMENT="${NODEPOOL_TIER0_ADAPTERS_DEPLOYMENT:
 # Adapters for API cluster/nodepool configuration
 export API_ADAPTERS_CLUSTER="${API_ADAPTERS_CLUSTER:-cl-namespace,cl-job,cl-deployment,cl-maestro}"
 export API_ADAPTERS_NODEPOOL="${API_ADAPTERS_NODEPOOL:-np-configmap}"
+
+
+# NAMESPACE must be unique to prevent GCP Pub/Sub topic/subscription collisions.
+# Set in the .env.example file as:
+export NAMESPACE="${NAMESPACE:-hyperfleet-e2e-$(echo ${USER:-default} | tr '[:upper:]' '[:lower:]')}"
+# Or can manually set it with as the namespace is DNS-1123 compliant
+export NAMESPACE=<unique_namespace>
+
 ```
 
 #### Verify Deployment
@@ -261,8 +269,8 @@ The following tools are available to help debug and interact with HyperFleet com
 **Important:** Set the `NAMESPACE` environment variable to match the namespace used during deployment. Some test cases deploy adapters dynamically and need to target the same namespace where your HyperFleet components are running.
 
 ```bash
-# Set NAMESPACE if you deployed to a custom namespace
-export NAMESPACE=my-custom-namespace
+# Set NAMESPACE if you deployed to a unique namespace
+export NAMESPACE=<unique_namespace>
 ./bin/hyperfleet-e2e test --label-filter=tier0
 ```
 
@@ -281,7 +289,7 @@ Unexpected error:
 
 1. **Check if all pods are running:**
    ```bash
-   kubectl get pods -n hyperfleet-e2e
+   kubectl get pods -n ${NAMESPACE}
    ```
 
    Expected output - all pods should show `Running` with `READY 1/1`:
@@ -296,13 +304,13 @@ Unexpected error:
 2. **Check pod logs for errors:**
    ```bash
    # Check API logs
-   kubectl logs -n hyperfleet-e2e deployment/hyperfleet-api --tail=50
+   kubectl logs -n ${NAMESPACE} deployment/hyperfleet-api --tail=50
 
    # Check Sentinel logs
-   kubectl logs -n hyperfleet-e2e deployment/hyperfleet-sentinel --tail=50
+   kubectl logs -n ${NAMESPACE} deployment/hyperfleet-sentinel --tail=50
 
    # Check adapter logs
-   kubectl logs -n hyperfleet-e2e deployment/cl-namespace-adapter --tail=50
+   kubectl logs -n ${NAMESPACE} deployment/cl-namespace-adapter --tail=50
    ```
 
 3. **Verify API connectivity:**
@@ -314,7 +322,7 @@ Unexpected error:
 4. **Check service endpoints:**
    ```bash
    # Verify LoadBalancer has external IP
-   kubectl get svc -n hyperfleet-e2e hyperfleet-api
+   kubectl get svc -n ${NAMESPACE} hyperfleet-api
    ```
 
 
