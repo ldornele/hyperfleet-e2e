@@ -586,6 +586,7 @@ If a test fails during cleanup, leftover resources may affect subsequent tests. 
 - **Helm ownership conflict** (most common in CI): `invalid ownership metadata; annotation validation error: key "meta.helm.sh/release-namespace" must equal "e2e-<NEW>": current value is "e2e-<OLD>"` — this means cluster-scoped resources (like ClusterRoles) from a previous run still exist and are owned by a different Helm release namespace
 
 To fix a Helm ownership conflict, delete the stale ClusterRole:
+
 ```bash
 kubectl get clusterroles | grep adapter-
 kubectl delete clusterrole adapter-clusters-cl-job adapter-clusters-cl-deployment adapter-clusters-cl-namespace
@@ -742,13 +743,15 @@ The setup step deploys the HyperFleet platform to the shared GKE cluster, stores
    │           └── build-log.txt
    └── build-logs/                           # Image build logs
    ```
-5. When a test fails, check `<tier>-nightly/openshift-hyperfleet-e2e-setup/artifacts/` for captured component logs — these show API, Sentinel, and Adapter output at the time of the test run
+5. 
+6. When a test fails, check `<tier>-nightly/openshift-hyperfleet-e2e-setup/artifacts/` for captured component logs — these show API, Sentinel, and Adapter output at the time of the test run
 
 ### Triggering a Manual Rerun
 
 **From the Prow dashboard:** Click the **Rerun** button on the job page. Don't click it repeatedly — it takes a few seconds to register.
 
 **From the command line (gangway API):**
+
 ```bash
 # Trigger tier0 nightly (replace with tier1 or tier2 as needed)
 curl -v -X POST \
