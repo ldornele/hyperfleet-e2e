@@ -23,107 +23,9 @@ For guidance on **writing** tests, see [development.md](development.md). For **r
 
 ## 1. System Overview
 
-### How HyperFleet Works
+For HyperFleet's architecture, component descriptions, and system diagrams, see the [architecture repo](https://github.com/openshift-hyperfleet/architecture). The key flow for E2E tests is: test creates a cluster via the API → Sentinel detects it and publishes a CloudEvent → Adapters process independently and report status → API aggregates conditions → test polls until `Reconciled=True`.
 
-HyperFleet is an event-driven cluster lifecycle management platform. When a test creates a cluster, several components coordinate to make it operational:
-
-```mermaid
-sequenceDiagram
-    participant Test as E2E Test
-    participant API as HyperFleet API
-    participant DB as PostgreSQL
-    participant Sentinel
-    participant Broker as Message Broker
-    participant Adapter as Adapter(s)
-    participant K8s as Kubernetes
-
-    Test->>API: POST /api/hyperfleet/v1/clusters (create cluster)
-    API->>DB: Store cluster (generation=1)
-    API-->>Test: 201 Created (cluster ID)
-
-    loop Sentinel poll cycle
-        Sentinel->>API: Fetch clusters needing reconciliation
-        Sentinel->>Sentinel: Evaluate CEL decision rules
-        Sentinel->>Broker: Publish CloudEvent
-    end
-
-    Broker->>Adapter: Fan-out event to all adapters
-
-    par Each adapter processes independently
-        Adapter->>Adapter: Extract params from event
-        Adapter->>Adapter: Evaluate preconditions (CEL)
-        Adapter->>K8s: Apply resources (Jobs, ConfigMaps, etc.)
-        Adapter->>API: Report status (Applied, Available, Health)
-    end
-
-    API->>DB: Aggregate adapter statuses → Reconciled=True
-
-    Test->>API: Poll until Reconciled=True
-    Note over Test: Test assertions pass ✓
-```
-
-### Key Components
-
-| Component | Role | What to check when debugging |
-|-----------|------|------------------------------|
-| **API** | REST service storing clusters, nodepools, and adapter statuses in PostgreSQL | Request/response errors, status aggregation |
-| **Sentinel** | Stateless poller that detects resources needing reconciliation and publishes CloudEvents | Event publication, poll intervals, label selectors |
-| **Broker** | Message bus (GCP Pub/Sub or RabbitMQ) that fans out events to all adapters | Message delivery, topic/subscription config |
-| **Adapter** | Event processor that applies K8s resources and reports status back to the API | Condition values, execution phases, CEL expressions |
-| **Maestro** | Cross-cluster resource delivery via ManifestWork (used by some adapters) | ManifestWork status, gRPC connectivity |
-
-### How a Test is Structured
-
-> For detailed guidance on writing tests, see [development.md](development.md). The summary below covers the pattern you need to understand when debugging.
-
-Every E2E test follows this lifecycle pattern:
-
-```go
-Describe("Cluster", func() {
-    var h *helper.Helper
-    var clusterID string
-
-    BeforeEach(func() {
-        h = helper.New()                                    // Initialize helper with config, API client, K8s client
-    })
-
-    AfterEach(func() {
-        h.CleanupTestCluster(ctx, clusterID)                // Delete ManifestWorks + namespaces
-    })
-
-    It("should create a cluster and reach Reconciled", func() {
-        // 1. Create cluster from JSON payload template
-        clusterID, err = h.GetTestCluster(ctx, "testdata/payloads/clusters/cluster-request.json")
-
-        // 2. Wait for all adapters to complete
-        err = h.WaitForClusterCondition(ctx, clusterID,
-            "Reconciled", openapi.ResourceConditionStatusTrue,
-            h.Cfg.Timeouts.Cluster.Reconciled)
-
-        // 3. Assert final state
-        cluster, _ := h.Client.GetCluster(ctx, clusterID)
-        Expect(h.HasResourceCondition(cluster.Status.Conditions,
-            "Available", openapi.ResourceConditionStatusTrue)).To(BeTrue())
-    })
-})
-```
-
-### Payload Templates
-
-> For payload template syntax and Go template variables, see the [Payload Templates section in development.md](development.md). The summary below covers what you need for debugging.
-
-Tests create clusters from JSON payloads stored in `testdata/payloads/`. These files support template variables for dynamic naming:
-
-```text
-testdata/
-└── payloads/
-    ├── clusters/       # Cluster creation payloads
-    │   └── cluster-request.json
-    └── nodepools/      # NodePool creation payloads
-        └── nodepool-request.json
-```
-
-If a test fails with a validation error (`HYPERFLEET-VAL-*`), check the payload file for missing or invalid fields. The payload is sent directly to `POST /api/hyperfleet/v1/clusters`, so the fields must match the API spec.
+For the test structure (BeforeEach/AfterEach lifecycle, code examples, payload templates), see [development.md](development.md). If a test fails with a validation error (`HYPERFLEET-VAL-*`), check the payload file in `testdata/payloads/` for missing or invalid fields.
 
 ---
 
@@ -190,7 +92,7 @@ At: /path/to/hyperfleet-e2e/e2e/cluster/creation.go:87
 
 Full Stack Trace:
   ...
-  helper/wait.go:25
+  helper/pollers.go:14
   e2e/cluster/creation.go:87
 ------------------------------
 ```
@@ -201,34 +103,11 @@ What to look for:
 - **`Timed out after`** — `Eventually` exceeded its timeout. The last observed state is shown (e.g., `<bool>: false` means the condition was still not met).
 - **`Expected ... to be true`** — the assertion that failed. Read the source line (e.g., `creation.go:87`) to see what condition was being checked.
 - **`Describe / Context / It`** — the full test path, useful for identifying which test and scenario failed.
-- **Stack trace** — follow it to the helper function (e.g., `wait.go:25`) to understand which wait condition timed out.
+- **Stack trace** — follow it to the helper function (e.g., `pollers.go:14`) to understand which polling function timed out.
 
 ### API Error Format
 
-The HyperFleet API returns errors following RFC 9457 Problem Details:
-
-```json
-{
-  "type": "https://api.hyperfleet.io/errors/validation-error",
-  "title": "Validation Error",
-  "status": 400,
-  "detail": "Cluster name is required",
-  "code": "HYPERFLEET-VAL-001",
-  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"
-}
-```
-
-Error code format: `HYPERFLEET-{CATEGORY}-{NUMBER}`
-
-| Category | HTTP Status | Meaning |
-|----------|-------------|---------|
-| `VAL` | 400, 422 | Validation failure |
-| `AUT` | 401 | Authentication failure |
-| `AUZ` | 403 | Authorization failure |
-| `NTF` | 404 | Resource not found |
-| `CNF` | 409 | Conflict (e.g., resource being deleted) |
-| `INT` | 500 | Internal server error |
-| `SVC` | 502, 503, 504 | Service unavailable |
+The API returns errors following RFC 9457 Problem Details with codes like `HYPERFLEET-VAL-001`. For the full error model and category reference, see the [error model standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/error-model.md) in the architecture repo.
 
 ### How Errors Surface in Test Output
 
@@ -283,15 +162,7 @@ When investigating a failure that involves multiple components:
 3. Check Sentinel logs for event publication: look for `sentinel.evaluate` spans
 4. Check Adapter logs for task execution: filter by cluster ID and adapter name
 
-Structured log fields to look for:
-
-| Field | Where | Purpose |
-|-------|-------|---------|
-| `cluster_id` | All components | Correlate across services |
-| `adapter` | Adapter logs | Identify which adapter |
-| `generation` | API, Adapter | Track spec version |
-| `observed_generation` | Adapter status | Confirm adapter processed latest spec |
-| `trace_id` | API responses | End-to-end request tracing |
+Use structured log fields (`cluster_id`, `adapter`, `generation`, `trace_id`) to correlate across services. For the full field reference, see the [logging specification](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/logging-specification.md) in the architecture repo.
 
 ### Tip: Broker Log Level
 
@@ -301,105 +172,12 @@ The message broker produces excessive output at `debug` level. If debugging brok
 
 ## 4. Adapter Debugging
 
-### Adapter Conditions
+### Adapter Conditions and Status Model
 
-Every adapter reports three required conditions on each status update:
+For condition types (Applied, Available, Health, Finalized), their meanings, status lifecycle, and how they aggregate into cluster-level Reconciled/LastKnownReconciled, see:
 
-| Condition | Meaning when `True` | Meaning when `False` |
-|-----------|---------------------|----------------------|
-| **Applied** | Resources have been created/applied to K8s | Resources not applied (preconditions not met, creation failed) |
-| **Available** | Adapter completed its work successfully | Work in progress, failed, or not started |
-| **Health** | No unexpected errors | Adapter encountered infrastructure errors |
-
-During **deletion**, a fourth condition is required:
-
-| Condition | Meaning when `True` | Meaning when `False` |
-|-----------|---------------------|----------------------|
-| **Finalized** | All managed resources deleted and verified | Cleanup in progress or failed |
-
-### Resource-Level Conditions
-
-At the cluster/nodepool level, the API computes aggregate conditions from individual adapter reports:
-
-```mermaid
-flowchart LR
-    subgraph Adapters["Individual Adapter Reports"]
-        A1["Adapter: cl-namespace<br/>Applied=True<br/>Available=True<br/>Health=True"]
-        A2["Adapter: cl-job<br/>Applied=True<br/>Available=True<br/>Health=True"]
-        A3["Adapter: cl-deployment<br/>Applied=True<br/>Available=False<br/>Health=True"]
-    end
-
-    subgraph API["API Aggregation"]
-        AGG["AggregateResourceStatus()"]
-    end
-
-    subgraph Cluster["Cluster Status"]
-        R["Reconciled=False<br/>(not all Available=True)"]
-        AV["Available=True<br/>(sticky — was True before)"]
-    end
-
-    A1 --> AGG
-    A2 --> AGG
-    A3 --> AGG
-    AGG --> R
-    AGG --> AV
-```
-
-| Condition | How It's Computed |
-|-----------|-------------------|
-| **Reconciled** | All required adapters report `Available=True` at current generation (normal lifecycle) **OR** all adapters report `Finalized=True` (during deletion) |
-| **Available** | Uses "sticky" logic — stays `True` during generation transitions until all adapters report at new generation |
-
-### Status Lifecycle
-
-```mermaid
-stateDiagram-v2
-    [*] --> PreconditionsNotMet: Event received
-
-    PreconditionsNotMet --> ResourcesCreated: Preconditions pass
-    PreconditionsNotMet --> PreconditionsNotMet: Dependency adapter not ready
-
-    ResourcesCreated --> JobRunning: K8s resources applied
-    ResourcesCreated --> AdapterError: Resource creation failed
-
-    JobRunning --> JobSucceeded: Workload completes
-    JobRunning --> JobFailed: Business logic error
-
-    JobSucceeded --> [*]: Available=True ✓
-
-    JobFailed --> JobRunning: Sentinel re-triggers (10s TTL)
-    AdapterError --> PreconditionsNotMet: Sentinel re-triggers
-
-    note right of PreconditionsNotMet
-        Applied=False
-        Available=False
-        Health=True
-    end note
-
-    note right of ResourcesCreated
-        Applied=True
-        Available=False
-        Health=True
-    end note
-
-    note right of JobSucceeded
-        Applied=True
-        Available=True
-        Health=True
-    end note
-
-    note right of JobFailed
-        Applied=True
-        Available=False
-        Health=True
-    end note
-
-    note right of AdapterError
-        Applied=False
-        Available=False
-        Health=False
-    end note
-```
+- [Adapter status contract](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/components/adapter/framework/adapter-status-contract.md)
+- [Status guide](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/docs/status-guide.md)
 
 ### Investigating a Stuck Adapter
 
@@ -408,7 +186,7 @@ flowchart TD
     A["Test stuck waiting<br/>for adapter condition"] --> B["GET /api/hyperfleet/v1/clusters/{id}<br/>Find adapter with Available=False"]
     B --> C["GET /api/hyperfleet/v1/clusters/{id}/statuses<br/>Read conditions for that adapter"]
     C --> D{observed_generation<br/>== cluster.generation?}
-    D -->|No| E["Adapter hasn't received latest event.<br/>Check Sentinel logs and Broker."]
+    D -->|No| E["Adapter still processing.<br/>Check Sentinel and adapter pod logs."]
     D -->|Yes| F{What is the reason?}
     F -->|JobRunning| G["Still working — wait or increase timeout Section 5"]
     F -->|JobFailed| H["Check adapter pod logs for business logic error"]
@@ -455,74 +233,21 @@ flowchart TD
 
 In this example, `cl-job` is the stuck adapter — its `Available` is `False` with reason `JobRunning`. The cluster won't reach `Reconciled=True` until this adapter completes.
 
-### Adapter Execution Phases
+### Adapter Execution Phases, Maestro, and Debug Commands
 
-The adapter framework executes in four phases:
+For adapter execution phases (ParamExtraction → Preconditions → Resources → PostActions), Maestro/ManifestWork troubleshooting, RBAC checks, and error messages, see:
 
-```text
-ParamExtraction → Preconditions → Resources → PostActions
-```
+- [Adapter runbook](https://github.com/openshift-hyperfleet/hyperfleet-adapter/blob/main/docs/runbook.md) — error messages, failure modes, and recovery procedures
+- [Adapter framework design](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/components/adapter/framework/adapter-frame-design.md) — execution phases and architecture
+- [maestro-cli](https://github.com/openshift-hyperfleet/maestro-cli/) — terminal UI for inspecting Maestro resources
 
-Failures are reported per-phase. When debugging adapter errors, identify which phase failed:
-
-- **ParamExtraction** — Event parameters couldn't be parsed. Note: error messages may not show the specific env var that's missing (known limitation).
-- **Preconditions** — Dependency conditions not met (e.g., another adapter hasn't completed). Check the CEL expression and the variables available in context (`params`, `resources.*`, `adapter.*`).
-- **Resources** — K8s resource creation/update failed. Check RBAC, resource quotas, and manifest validity.
-- **PostActions** — Status reporting or post-processing failed.
-
-### Maestro/ManifestWork
-
-For adapters using Maestro transport, note that **Maestro does not support OpenTelemetry**. Tracing stops at the gRPC boundary between the adapter and Maestro. To debug ManifestWork issues:
-
-```bash
-kubectl get manifestworks -A
-kubectl describe manifestwork <name> -n <namespace>
-```
-
-### Adapter-Specific Debug Commands
-
-> For general kubectl commands (pod logs, namespace checks, Helm), see [Section 9](#kubectl-commands-for-debugging).
-
-```bash
-# RBAC verification — can the adapter create the resources it needs?
-kubectl auth can-i create jobs --as=system:serviceaccount:hyperfleet-system:hyperfleet-adapter-validation
-
-# API connectivity from inside the adapter pod
-kubectl exec -it <pod-name> -n hyperfleet-system -- \
-  curl http://hyperfleet-api.hyperfleet-system.svc.cluster.local:8080/health
-
-# Adapter metrics
-curl http://<pod-ip>:9090/metrics
-```
+**Note:** Maestro does not support OpenTelemetry — tracing stops at the gRPC boundary.
 
 ---
 
 ## 5. Timeout Tuning
 
-### Configuration Priority
-
-Timeouts follow the same [configuration priority](architecture.md) as all settings (highest wins):
-
-```mermaid
-flowchart LR
-    A["CLI flags<br/><code>--timeout-cluster-reconciled</code>"] --> B["Env vars<br/><code>HYPERFLEET_TIMEOUTS_*</code>"]
-    B --> C["Config file<br/><code>configs/config.yaml</code>"]
-    C --> D["Built-in defaults<br/><code>pkg/config/defaults.go</code>"]
-
-    style A fill:#1b5e20,color:#fff
-    style D fill:#757575,color:#fff
-```
-
-### Default Timeouts
-
-| Parameter | Default | Env Var |
-|-----------|---------|---------|
-| Cluster reconciled | 30m | `HYPERFLEET_TIMEOUTS_CLUSTER_RECONCILED` |
-| NodePool reconciled | 30m | `HYPERFLEET_TIMEOUTS_NODEPOOL_RECONCILED` |
-| Adapter processing | 5m | `HYPERFLEET_TIMEOUTS_ADAPTER_PROCESSING` |
-| Polling interval | 10s | `HYPERFLEET_POLLING_INTERVAL` |
-
-No external CI pipeline overrides these values — they are baked into the test binary configuration.
+For timeout configuration, env var overrides, and default values, see the [runbook troubleshooting section](runbook.md#common-failure-modes-and-troubleshooting) and `configs/config.yaml`.
 
 ### When to Increase vs. When to Fix
 
@@ -533,16 +258,9 @@ No external CI pipeline overrides these values — they are baked into the test 
 | `Available=False` | `PreconditionsNotMet` | Dependency adapter stuck — investigate that adapter |
 | No status reported | — | Adapter didn't receive event — check Sentinel and broker |
 
-### Sentinel Reconciliation TTLs
+### Sentinel Reconciliation
 
-The Sentinel uses different TTLs for resource reconciliation:
-
-| Scenario | TTL | Meaning |
-|----------|-----|---------|
-| Not reconciled (adapter processing) | 10s | Re-publish event quickly for in-progress work |
-| Reconciled and stable | 30m | Periodic health check, low urgency |
-
-If tests timeout waiting for an adapter, verify the Sentinel is publishing events. Check the [Sentinel metrics](#sentinel-metrics) in Section 9.
+If tests timeout waiting for an adapter, verify the Sentinel is publishing events. Check `hyperfleet_sentinel_events_published_total` and `hyperfleet_sentinel_pending_resources` metrics on the Sentinel pod. For Sentinel TTLs and reconciliation behavior, see [sentinel pulses](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/docs/sentinel-pulses.md).
 
 ### Adjusting Timeouts for Local Debugging
 
@@ -559,22 +277,7 @@ make e2e
 
 ### Test Cleanup Flow
 
-Each test follows this cleanup pattern in `AfterEach`:
-
-```mermaid
-flowchart TD
-    A["AfterEach: CleanupTestCluster(ctx, clusterID)"] --> B["Find all Maestro<br/>ManifestWorks for cluster"]
-    B --> C["Delete each ManifestWork"]
-    C --> D["Poll: wait for Maestro agent<br/>to clean up K8s resources (30s)"]
-    D --> E["Find namespaces by<br/>cluster ID prefix"]
-    E --> F["Delete each namespace<br/>with wait (30s per namespace)"]
-    F --> G{Errors?}
-    G -->|"Yes"| H["Accumulate errors<br/>(don't stop — continue cleanup)"]
-    G -->|"No"| I["Cleanup complete ✓"]
-    H --> I
-```
-
-Errors during cleanup are accumulated, not short-circuited — the cleanup attempts to remove as much as possible.
+Each test's `AfterEach` calls `CleanupTestCluster()` which deletes Maestro ManifestWorks then K8s namespaces. Errors are accumulated, not short-circuited. For the full cleanup lifecycle, see [architecture.md](architecture.md).
 
 ### Detecting Test Pollution
 
@@ -620,43 +323,7 @@ kubectl delete manifestwork -n <namespace> --all
 
 ### Deletion Flow (Production)
 
-The full HyperFleet deletion lifecycle:
-
-```mermaid
-sequenceDiagram
-    actor User
-    participant API
-    participant DB
-    participant Sentinel
-    participant Broker
-    participant Adapter
-    participant K8s
-
-    User->>API: DELETE /api/hyperfleet/v1/clusters/{id}
-    API->>DB: Set deleted_time, increment generation
-    API-->>User: 202 Accepted
-
-    loop Poll cycle
-        Sentinel->>API: Fetch resources (generation changed)
-        Sentinel->>Broker: Publish CloudEvent
-    end
-
-    Broker->>Adapter: Deliver event (fan-out)
-
-    Adapter->>Adapter: Evaluate lifecycle.delete.when CEL
-    Note over Adapter: "deleted_time != null" → true
-
-    Adapter->>K8s: Delete resources (ordered by CEL expressions)
-    K8s-->>Adapter: Resources deleted
-
-    Adapter->>API: POST /statuses (Finalized=True)
-    API->>DB: Aggregate conditions → Reconciled=True
-
-    Note over API,DB: All adapters Finalized=True → hard delete
-    API->>DB: Remove records permanently
-```
-
-Force deletion is a separate feature: "best effort cleanup resulting in manual cleanup of orphaned resources."
+For the full production deletion lifecycle (mark → Sentinel → Adapter cleanup → Finalized → hard delete), see the [adapter deletion flow design](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/components/adapter/framework/adapter-deletion-flow-design.md) in the architecture repo.
 
 ---
 
@@ -743,8 +410,7 @@ The setup step deploys the HyperFleet platform to the shared GKE cluster, stores
    │           └── build-log.txt
    └── build-logs/                           # Image build logs
    ```
-5. 
-6. When a test fails, check `<tier>-nightly/openshift-hyperfleet-e2e-setup/artifacts/` for captured component logs — these show API, Sentinel, and Adapter output at the time of the test run
+5. When a test fails, check `<tier>-nightly/openshift-hyperfleet-e2e-setup/artifacts/` for captured component logs — these show API, Sentinel, and Adapter output at the time of the test run
 
 ### Triggering a Manual Rerun
 
@@ -764,7 +430,7 @@ curl -v -X POST \
 
 **Login to the test cluster:** In the build log, click the namespace link (e.g., `https://console-openshift-console.apps...`) to access the test cluster's console.
 
-**Debug trick — pause execution:** To SSH into the Prow environment for live investigation, submit a PR that adds a `sleep` command to the test step. This holds the environment open while you inspect the state.
+**Debug trick — pause execution:** To keep the Prow environment alive for live investigation, submit a PR to the [openshift/release](https://github.com/openshift/release) repo that adds a `sleep` command to the E2E workflow test step. While the job is paused, click the namespace link in the build log (e.g., `https://console-openshift-console.apps.build03...`) to open the OpenShift console, then use `oc` to inspect the running pods and resources. See the [Prow setup guide](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/docs/test-release/add-hyperfleet-e2e-ci-job-in-prow.md) for details on the workflow step definitions.
 
 ### Failure Categories
 
@@ -807,112 +473,15 @@ Common flakiness sources:
 
 ### Codespace / Dev Environment Issues
 
-- **Pods crash-loop after hibernation:** After a Codespace wakes from sleep, pods may crash-loop. Restart all deployments: `kubectl rollout restart deployment -n hyperfleet-system`
+- **Pods crash-loop after hibernation:** After a Codespace wakes from sleep, pods may crash-loop. Restart all deployments: `kubectl rollout restart deployment -n <ns>`
 - **Port-forwards die after hibernation:** Re-establish port-forwards after resuming.
 - **Always verify clean state** before running tests in a dev environment.
 
 ---
 
-## 9. Tools and Commands Quick Reference
+## 9. Quick Reference
 
-### Helper Functions
-
-| Function | Purpose |
-|----------|---------|
-| `h.WaitForClusterCondition(ctx, id, condType, status, timeout)` | Wait for a cluster-level condition (e.g., Reconciled) |
-| `h.WaitForAdapterCondition(ctx, id, adapter, condType, status, timeout)` | Wait for a specific adapter's condition |
-| `h.WaitForAllAdapterConditions(ctx, id, condType, status, timeout)` | Wait for all adapters to reach a condition |
-| `h.WaitForNodePoolCondition(ctx, clusterID, npID, condType, status, timeout)` | Wait for a nodepool condition |
-| `h.HasAdapterCondition(conditions, type, status)` | Check if an adapter condition exists with expected status |
-| `h.HasResourceCondition(conditions, type, status)` | Check if a resource-level condition matches |
-| `h.Client.GetCluster(ctx, id)` | Fetch cluster details including status |
-| `h.Client.GetClusterStatuses(ctx, id)` | Fetch detailed adapter statuses for a cluster |
-| `h.Client.ListClusters(ctx)` | List all clusters |
-| `h.CleanupTestCluster(ctx, id)` | Delete test cluster resources (ManifestWorks + namespaces) |
-
-### API Endpoints
-
-| Endpoint | Purpose                                                   |
-|----------|-----------------------------------------------------------|
-| `GET /api/hyperfleet/v1/clusters/{id}` | Aggregated cluster status (conditions, adapter summaries) |
-| `GET /api/hyperfleet/v1/clusters/{id}/statuses` | Detailed adapter conditions per cluster                   |
-| `POST /api/hyperfleet/v1/clusters` | Create a cluster                                          |
-| `GET /api/hyperfleet/v1/clusters/{id}/nodepools/{npId}` | NodePool details                                          |
-
-### Makefile Targets
-
-> See [development.md](development.md) for the full list. The debugging-relevant targets are:
-
-| Target | Purpose |
-|--------|---------|
-| `make e2e` | Run all E2E tests |
-| `make e2e-ci` | Run E2E tests with JUnit XML output (`output/junit.xml`) |
-| `make build` | Build test binary with version/commit info |
-| `make test` | Run unit tests in `pkg/` |
-| `make check` | Run all quality checks (fmt + vet + lint + test) |
-| `make generate` | Regenerate OpenAPI client from API spec |
-
-### Test Labels
-
-> See [development.md](development.md) for label usage guidelines and examples. Quick reference:
-
-| Label | Purpose | Usage |
-|-------|---------|-------|
-| `tier0` | Critical workflows — blocks release | `--ginkgo.label-filter=tier0` |
-| `tier1` | Major feature coverage | `--ginkgo.label-filter=tier1` |
-| `tier2` | Edge cases and advanced scenarios | `--ginkgo.label-filter=tier2` |
-| `negative` | Error handling and validation | `--ginkgo.label-filter=negative` |
-| `disruptive` | Fault injection tests | `--ginkgo.label-filter=disruptive` |
-| `slow` | Long-running tests (>5-10 min) | `--ginkgo.label-filter=slow` |
-| `perf` | Performance and stress tests | `--ginkgo.label-filter=perf` |
-| `upgrade` | Version compatibility tests | `--ginkgo.label-filter=upgrade` |
-
-### Running Specific Tests
-
-```bash
-# Run only tier0 tests
-make e2e GINKGO_LABEL_FILTER=tier0
-
-# Run a specific test by name
-go test ./e2e/... -ginkgo.focus="should create a cluster"
-
-# Run with verbose output
-go test ./e2e/... -ginkgo.v
-
-# Run with race detection
-go test -race ./e2e/...
-```
-
-### kubectl Commands for Debugging
-
-```bash
-# Check component pod status
-kubectl get pods -n hyperfleet-system
-
-# View adapter logs
-kubectl logs -n hyperfleet-system -l app=hyperfleet-adapter --tail=100
-
-# Check Sentinel logs
-kubectl logs -n hyperfleet-system -l app=hyperfleet-sentinel --tail=100
-
-# Inspect ManifestWorks
-kubectl get manifestworks -A
-kubectl describe manifestwork <name> -n <namespace>
-
-# Check orphaned test namespaces
-kubectl get namespaces | grep -E '^e2e-|^test-'
-
-# Verify Helm deployments
-helm list -n hyperfleet-system
-```
-
-### Sentinel Metrics
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| `hyperfleet_sentinel_events_published_total` | Counter | Events published, by `resource_type` |
-| `hyperfleet_sentinel_pending_resources` | Gauge | Resources awaiting reconciliation |
-| `hyperfleet_sentinel_poll_duration_seconds` | Histogram | Time taken per poll cycle |
+For helper functions (pollers, matchers, validation helpers), see [architecture.md](architecture.md). For Makefile targets, test labels, running specific tests, and kubectl commands, see the [runbook](runbook.md) and [development guide](development.md).
 
 ### External Resources
 
