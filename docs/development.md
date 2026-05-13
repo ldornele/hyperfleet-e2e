@@ -390,9 +390,11 @@ for _, adapter := range statuses.Items {
 
 ### Running a development environment with custom dev images and RabbitMQ
 
+> **For a complete local setup guide using kind**, see [Local kind Setup](local-kind-setup.md).
+
 While in development, it is common to use custom images for components (api, sentinel, adapters) instead of the CI images.
 
-Is also convenient to use RabbitMQ to avoid dealing with GCP credentials for Pub/Sub
+It is also convenient to use RabbitMQ to avoid dealing with GCP credentials for Pub/Sub.
 
 RabbitMQ has to be installed beforehand, you can use the `hyperfleet-infra` repository to execute:
 
@@ -404,7 +406,8 @@ Then you can deploy the e2e test components with support for RabbitMQ and custom
 
 ```
 SENTINEL_BROKER_RABBITMQ_URL="amqp://guest:guest@rabbitmq.rabbitmq:5672" \
-ADAPTER_BROKER_RABBITMQ_URL="amqp://guest:guest@rabbitmq.rabbitmq:5672" \  ADAPTER_BROKER_TYPE=rabbitmq \
+ADAPTER_BROKER_RABBITMQ_URL="amqp://guest:guest@rabbitmq.rabbitmq:5672" \
+ADAPTER_BROKER_TYPE=rabbitmq \
 SENTINEL_BROKER_TYPE=rabbitmq \
 ./deploy-scripts/deploy-clm.sh --action install \
 --namespace <your-namespace> \

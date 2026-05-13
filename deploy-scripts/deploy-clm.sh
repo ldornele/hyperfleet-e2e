@@ -47,6 +47,7 @@ VERBOSE="${VERBOSE:-false}"
 
 # Image Registry
 IMAGE_REGISTRY="${IMAGE_REGISTRY:-registry.ci.openshift.org}"
+IMAGE_PULL_POLICY="${IMAGE_PULL_POLICY:-Always}"
 
 # Provider Configuration
 GCP_PROJECT_ID="${GCP_PROJECT_ID:-hcm-hyperfleet}"

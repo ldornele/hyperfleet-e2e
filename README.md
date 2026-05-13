@@ -102,7 +102,8 @@ hyperfleet-e2e/
 ## Documentation
 
 - **[System Architecture](https://github.com/openshift-hyperfleet/architecture)** - Single source of truth for all HyperFleet architectural documentation
-- **[Runbook](docs/runbook.md)** - E2E test runbook for local development
+- **[Local kind Setup](docs/local-kind-setup.md)** - Run E2E tests locally with kind and RabbitMQ
+- **[Runbook](docs/runbook.md)** - E2E test runbook for GKE clusters
 - **[Getting Started](docs/getting-started.md)** - Run your first test in 10 minutes
 - **[Framework Architecture](docs/architecture.md)** - Understand the framework design
 - **[Development](docs/development.md)** - Write new tests
