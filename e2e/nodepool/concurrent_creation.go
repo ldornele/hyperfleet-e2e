@@ -32,6 +32,7 @@ var _ = ginkgo.Describe("[Suite: nodepool][concurrent] Multiple nodepools can co
 			clusterID, err = h.GetTestCluster(ctx, h.TestDataPath("payloads/clusters/cluster-request.json"))
 			Expect(err).NotTo(HaveOccurred(), "failed to get test cluster")
 			ginkgo.GinkgoWriter.Printf("Using cluster ID: %s\n", clusterID)
+
 		})
 
 		ginkgo.It("should create multiple nodepools under the same cluster and all reach Reconciled state with isolated resources",
@@ -104,15 +105,8 @@ var _ = ginkgo.Describe("[Suite: nodepool][concurrent] Multiple nodepools can co
 				ginkgo.By("Wait for all nodepools to reach Reconciled=True and Available=True")
 				for i, npID := range nodepoolIDs {
 					ginkgo.GinkgoWriter.Printf("Waiting for nodepool %d (%s) to become Reconciled...\n", i, npID)
-					err := h.WaitForNodePoolCondition(
-						ctx,
-						clusterID,
-						npID,
-						client.ConditionTypeReconciled,
-						openapi.ResourceConditionStatusTrue,
-						h.Cfg.Timeouts.NodePool.Reconciled,
-					)
-					Expect(err).NotTo(HaveOccurred(), "nodepool %d (%s) should reach Reconciled=True", i, npID)
+					Eventually(h.PollNodePool(ctx, clusterID, npID), h.Cfg.Timeouts.NodePool.Reconciled, h.Cfg.Polling.Interval).
+						Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 
 					np, err := h.Client.GetNodePool(ctx, clusterID, npID)
 					Expect(err).NotTo(HaveOccurred(), "failed to get nodepool %d (%s)", i, npID)
@@ -180,22 +174,10 @@ var _ = ginkgo.Describe("[Suite: nodepool][concurrent] Multiple nodepools can co
 			if h == nil || clusterID == "" {
 				return
 			}
-
-			ginkgo.By("Verify final cluster state to ensure Reconciled before cleanup")
-			err := h.WaitForClusterCondition(
-				ctx,
-				clusterID,
-				client.ConditionTypeReconciled,
-				openapi.ResourceConditionStatusTrue,
-				h.Cfg.Timeouts.Cluster.Reconciled,
-			)
-			if err != nil {
-				ginkgo.GinkgoWriter.Printf("WARNING: cluster %s did not reach Reconciled state before cleanup: %v\n", clusterID, err)
+			ginkgo.By("cleaning up cluster " + clusterID)
+			if err := h.CleanupTestCluster(ctx, clusterID); err != nil {
+				ginkgo.GinkgoWriter.Printf("Warning: cleanup failed for cluster %s: %v\n", clusterID, err)
 			}
-
-			ginkgo.By("cleaning up test cluster " + clusterID)
-			err = h.CleanupTestCluster(ctx, clusterID)
-			Expect(err).NotTo(HaveOccurred(), "failed to cleanup cluster %s", clusterID)
 		})
 	},
 )

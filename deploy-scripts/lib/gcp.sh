@@ -3,7 +3,12 @@
 # gcp.sh - Google Cloud Platform resource management functions
 #
 # This module handles discovery and cleanup of GCP resources (Pub/Sub topics and subscriptions)
-# created during deployment
+# created during deployment.
+#
+# NAMESPACE requirements
+# - Must be unique to prevent Pub/Sub topic/subscription collisions across deployments
+# - Must be DNS-1123 compliant (lowercase alphanumeric, hyphens, start/end with alphanumeric)
+# - Default: hyperfleet-e2e-$USER (when using .env configuration)
 
 # ============================================================================
 # Constants
@@ -48,10 +53,11 @@ discover_pubsub_topics() {
     fi
 
     # List topics that match the namespace pattern
+    # NAMESPACE must be unique and DNS-1123 compliant (default: hyperfleet-e2e-$USER when using .env)
     # Topics are named:
-    #   - ${NAMESPACE}-${resource_type}  (e.g., hyperfleet-e2e-clusters, hyperfleet-e2e-nodepools)
-    #   - ${NAMESPACE}-${resource_type}-dlq  (e.g., hyperfleet-e2e-clusters-dlq)
-    #   - ${NAMESPACE}-${resource_type}-${adapter_name}-dlq  (e.g., testb-clusters-cl-namespace-dlq) - ACTUAL (Temporary))
+    #   - ${NAMESPACE}-${resource_type}  (e.g., hyperfleet-e2e-jdoe-clusters, hyperfleet-e2e-jdoe-nodepools)
+    #   - ${NAMESPACE}-${resource_type}-dlq  (e.g., hyperfleet-e2e-jdoe-clusters-dlq)
+    #   - ${NAMESPACE}-${resource_type}-${adapter_name}-dlq  (e.g., hyperfleet-e2e-jdoe-clusters-adapter1-dlq)
     local topics=()
     local all_topics
 
@@ -114,8 +120,9 @@ discover_pubsub_subscriptions() {
     fi
 
     # List subscriptions that match the namespace pattern
+    # NAMESPACE must be unique and DNS-1123 compliant (default: hyperfleet-e2e-$USER when using .env)
     # Subscriptions are named: ${NAMESPACE}-${resource_type}-${adapter_name}
-    # Example: hyperfleet-e2e-clusters-example1-namespace, hyperfleet-e2e-nodepools-validation
+    # Example: hyperfleet-e2e-jdoe-clusters-adapter1, <unique-namespace>-clusters-adapter1
     local subscriptions=()
     local all_subscriptions
 

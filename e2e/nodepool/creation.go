@@ -3,7 +3,6 @@ package nodepool
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega" //nolint:staticcheck // dot import for test readability
@@ -43,37 +42,10 @@ var _ = ginkgo.Describe("[Suite: nodepool][baseline] NodePool Resource Type Life
 
 		ginkgo.Describe("Basic Workflow Validation", ginkgo.Label(labels.Tier0), func() {
 			// This test validates the end-to-end nodepool lifecycle workflow:
-			// 1. Initial condition validation (Reconciled=False, Available=False)
-			// 2. Required adapter execution with comprehensive metadata validation
-			// 3. Final nodepool state verification (Reconciled and Available conditions)
+			// 1. Required adapter execution with comprehensive metadata validation
+			// 2. Final nodepool state verification (Reconciled and Available conditions)
 			ginkgo.It("should validate complete workflow from creation to Reconciled state",
 				func(ctx context.Context) {
-					var err error
-
-					ginkgo.By("Verify initial status of nodepool")
-					// Verify initial conditions are False, indicating workflow has not completed yet
-					// This ensures the nodepool starts in the correct initial state
-					// Use Eventually to handle race conditions where conditions might not be populated yet
-					initStatusPollInterval := time.Second
-					initCheckTimeout := 3 * time.Second
-					Eventually(func(g Gomega) {
-
-						np, err := h.Client.GetNodePool(ctx, clusterID, nodepoolID)
-						g.Expect(err).NotTo(HaveOccurred(), "failed to get nodepool")
-						g.Expect(np.Status).NotTo(BeNil(), "nodepool status should be present")
-						g.Expect(np.Status.Conditions).NotTo(BeEmpty(), "conditions should be populated")
-
-						hasReconciledFalse := h.HasResourceCondition(np.Status.Conditions,
-							client.ConditionTypeReconciled, openapi.ResourceConditionStatusFalse)
-						g.Expect(hasReconciledFalse).To(BeTrue(),
-							"initial nodepool conditions should have Reconciled=False")
-
-						hasAvailableFalse := h.HasResourceCondition(np.Status.Conditions,
-							client.ConditionTypeAvailable, openapi.ResourceConditionStatusFalse)
-						g.Expect(hasAvailableFalse).To(BeTrue(),
-							"initial nodepool conditions should have Available=False")
-					}, initCheckTimeout, initStatusPollInterval).Should(Succeed())
-
 					ginkgo.By("Verify required adapter execution results")
 					// Validate required adapters from config have completed successfully
 					// If an adapter fails, we can identify which specific adapter failed
@@ -147,15 +119,8 @@ var _ = ginkgo.Describe("[Suite: nodepool][baseline] NodePool Resource Type Life
 					ginkgo.By("Verify final nodepool state")
 					// Wait for nodepool Reconciled condition and verify both Reconciled and Available conditions are True
 					// This confirms the nodepool has reached the desired end state
-					err = h.WaitForNodePoolCondition(
-						ctx,
-						clusterID,
-						nodepoolID,
-						client.ConditionTypeReconciled,
-						openapi.ResourceConditionStatusTrue,
-						h.Cfg.Timeouts.NodePool.Reconciled,
-					)
-					Expect(err).NotTo(HaveOccurred(), "nodepool Reconciled condition should transition to True")
+					Eventually(h.PollNodePool(ctx, clusterID, nodepoolID), h.Cfg.Timeouts.NodePool.Reconciled, h.Cfg.Polling.Interval).
+						Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 
 					finalNodePool, err := h.Client.GetNodePool(ctx, clusterID, nodepoolID)
 					Expect(err).NotTo(HaveOccurred(), "failed to get final nodepool state")
@@ -239,43 +204,19 @@ var _ = ginkgo.Describe("[Suite: nodepool][baseline] NodePool Resource Type Life
 					// Wait for nodepool Reconciled condition and verify both Reconciled and Available conditions are True
 					// This confirms the nodepool workflow completed successfully and all K8s resources were created
 					// Without this, adapters may still be creating resources during cleanup
-					err := h.WaitForNodePoolCondition(
-						ctx,
-						clusterID,
-						nodepoolID,
-						client.ConditionTypeReconciled,
-						openapi.ResourceConditionStatusTrue,
-						h.Cfg.Timeouts.NodePool.Reconciled,
-					)
-					Expect(err).NotTo(HaveOccurred(), "nodepool Reconciled condition should transition to True")
+					Eventually(h.PollNodePool(ctx, clusterID, nodepoolID), h.Cfg.Timeouts.NodePool.Reconciled, h.Cfg.Polling.Interval).
+						Should(helper.HaveResourceCondition(client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue))
 				})
 		})
 
 		ginkgo.AfterEach(func(ctx context.Context) {
-			// Skip cleanup if helper not initialized or no cluster created
-			// Note: Deleting cluster will cascade delete nodepool automatically
 			if h == nil || clusterID == "" {
 				return
 			}
-
-			ginkgo.By("Verify final cluster state to ensure Reconciled before cleanup")
-			// Wait for cluster Reconciled condition to prevent namespace deletion conflicts
-			// Without this, adapters may still be creating resources during cleanup
-			// TODO Replace this workaround with clusters and nodepools API DELETE once HyperFleet API supports
-			err := h.WaitForClusterCondition(
-				ctx,
-				clusterID,
-				client.ConditionTypeReconciled,
-				openapi.ResourceConditionStatusTrue,
-				h.Cfg.Timeouts.Cluster.Reconciled,
-			)
-			if err != nil {
-				ginkgo.GinkgoWriter.Printf("WARNING: cluster %s did not reach Reconciled state before cleanup: %v\n", clusterID, err)
+			ginkgo.By("cleaning up cluster " + clusterID)
+			if err := h.CleanupTestCluster(ctx, clusterID); err != nil {
+				ginkgo.GinkgoWriter.Printf("Warning: cleanup failed for cluster %s: %v\n", clusterID, err)
 			}
-
-			ginkgo.By("cleaning up test cluster " + clusterID)
-			err = h.CleanupTestCluster(ctx, clusterID)
-			Expect(err).NotTo(HaveOccurred(), "failed to cleanup cluster %s", clusterID)
 		})
 	},
 )

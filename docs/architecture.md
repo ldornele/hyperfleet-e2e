@@ -13,13 +13,15 @@ HyperFleet E2E is a Ginkgo-based black-box testing framework for validating Hype
 
 ```text
 pkg/
-├── api/          - OpenAPI generated client
-├── client/       - HyperFleet API client wrapper
-├── config/       - Configuration loading and validation
-├── e2e/          - Test execution engine (Ginkgo)
-├── helper/       - Test helper utilities (waits, assertions)
-├── labels/       - Test label definitions
-└── logger/       - Structured logging (slog)
+├── api/                - OpenAPI generated client
+├── client/             - HyperFleet API client wrapper
+│   ├── kubernetes/     - Kubernetes client (client-go)
+│   └── maestro/        - Maestro resource bundle client
+├── config/             - Configuration loading and validation
+├── e2e/                - Test execution engine (Ginkgo)
+├── helper/             - Test helpers (pollers, matchers, resource management)
+├── labels/             - Test label definitions
+└── logger/             - Structured logging (slog)
 ```
 
 ## Resource Management
@@ -35,11 +37,11 @@ HyperFleet E2E creates ephemeral resources per test for complete isolation.
 **Workflow**:
 ```text
 Test starts
-  → Create new Helper instance
+  → Create new Helper instance (helper.New())
   → GetTestCluster() creates cluster via API
-  → Wait for cluster Reconciled condition
+  → Poll for cluster Reconciled condition (pollers + matchers)
   → Execute test assertions
-  → CleanupTestCluster() deletes cluster
+  → CleanupTestCluster() deletes cluster and namespaces
 Test ends
 ```
 
@@ -53,8 +55,6 @@ timeouts:
   cluster:
     reconciled: 5m
 ```
-
-## Core Packages
 
 ### pkg/config
 
@@ -100,38 +100,74 @@ Built-in Defaults (lowest priority)
 - Wraps generated OpenAPI `Client` from `pkg/api/openapi`
 
 **Key Methods**:
+
+*Clusters*:
+- `CreateCluster(ctx, req)` / `CreateClusterFromPayload(ctx, path)` - Create cluster
 - `GetCluster(ctx, clusterID)` - Fetch cluster details
-- `CreateCluster(ctx, payload)` - Create new cluster
-- `DeleteCluster(ctx, clusterID)` - Delete cluster
-- `GetNodePool(ctx, clusterID, nodePoolID)` - Fetch nodepool details
-- Similar methods for all HyperFleet resources
+- `ListClusters(ctx)` - List all clusters
+- `DeleteCluster(ctx, clusterID)` - Soft-delete cluster
+- `PatchCluster(ctx, clusterID, req)` / `PatchClusterFromPayload(ctx, clusterID, path)` - Update cluster
+- `GetClusterStatuses(ctx, clusterID)` - Fetch adapter statuses
+
+*NodePools*:
+- `CreateNodePool(ctx, clusterID, req)` / `CreateNodePoolFromPayload(ctx, clusterID, path)` - Create nodepool
+- `GetNodePool(ctx, clusterID, npID)` - Fetch nodepool details
+- `ListNodePools(ctx, clusterID)` - List nodepools for a cluster
+- `DeleteNodePool(ctx, clusterID, npID)` - Soft-delete nodepool
+- `PatchNodePool(ctx, clusterID, npID, req)` / `PatchNodePoolFromPayload(ctx, clusterID, npID, path)` - Update nodepool
+- `GetNodePoolStatuses(ctx, clusterID, npID)` - Fetch adapter statuses
 
 ### pkg/helper
 
-**Purpose**: Test helper utilities for resource management
+**Purpose**: Test helper utilities — resource management, pollers, matchers, K8s verification
 
 **Key Features**:
-- Resource lifecycle management (create, wait, cleanup)
-- Condition polling and validation
-- Per-test helper instance creation
+- Per-test helper instance creation (`New()`)
+- Resource lifecycle management (create, cleanup)
+- Pollers for async assertions with `Eventually`
+- Custom Gomega matchers for resource and adapter conditions
+- Kubernetes resource verification (namespaces, deployments, jobs, configmaps)
+- Adapter deployment/uninstall via Helm
 
 **Key Types**:
-- `Helper` - Main helper struct with resource management methods
+- `Helper` - Main struct with `Cfg`, `Client`, `K8sClient`, `MaestroClient`
 
 **Key Methods**:
 
-**Resource Management**:
+*Resource Management* (`helper.go`):
 - `GetTestCluster(ctx, payloadPath)` - Create temporary test cluster
-- `CleanupTestCluster(ctx, clusterID)` - Delete test cluster
+- `CleanupTestCluster(ctx, clusterID)` - Delete cluster, Maestro bundles, and namespaces
 - `GetTestNodePool(ctx, clusterID, payloadPath)` - Create nodepool
-- `CleanupTestNodePool(ctx, clusterID, nodePoolID)` - Delete nodepool
 
-**Wait Operations**:
-- `WaitForClusterCondition(ctx, clusterID, conditionType, expectedStatus, timeout)` - Poll until cluster condition matches
-- `WaitForAllAdapterConditions(ctx, clusterID, conditions)` - Wait for adapter conditions
+*Pollers* (`pollers.go`) — thin functions returning current state for use with `Eventually`:
+- `PollCluster(ctx, id)` - Returns `(*Cluster, error)`
+- `PollNodePool(ctx, clusterID, npID)` - Returns `(*NodePool, error)`
+- `PollClusterAdapterStatuses(ctx, clusterID)` - Returns `(*AdapterStatusList, error)`
+- `PollNodePoolAdapterStatuses(ctx, clusterID, npID)` - Returns `(*AdapterStatusList, error)`
+- `PollClusterHTTPStatus(ctx, id)` - Returns HTTP status code (200/404)
+- `PollNodePoolHTTPStatus(ctx, clusterID, npID)` - Returns HTTP status code (200/404)
+- `PollNamespacesByPrefix(ctx, prefix)` - Returns `([]string, error)`
 
-**Condition Validation**:
-- `ValidateAdapterConditions(ctx, clusterID, expectedConditions)` - Check adapter status
+*Custom Matchers* (`matchers.go`) — reusable Gomega matchers:
+- `HaveResourceCondition(condType, status)` - Matches `*Cluster` or `*NodePool` with given condition
+- `HaveAllAdaptersWithCondition(adapters, condType, status)` - All required adapters have condition
+- `HaveAllAdaptersAtGeneration(adapters, gen)` - All adapters at generation with Applied/Available/Health=True
+
+*Condition Validation* (`validation.go`):
+- `HasResourceCondition(conditions, condType, status)` - Synchronous condition check
+- `HasAdapterCondition(conditions, condType, status)` - Synchronous adapter condition check
+- `AllConditionsTrue(conditions, condTypes)` - All specified conditions are True
+- `AdapterNameToConditionType(adapterName)` - Convert adapter name to condition type string
+
+*Kubernetes Verification* (`k8s.go`):
+- `VerifyNamespaceActive(ctx, name, labels, annotations)` - Namespace exists and Active
+- `VerifyDeploymentAvailable(ctx, ns, labels, annotations)` - Deployment is Available
+- `VerifyJobComplete(ctx, ns, labels, annotations)` - Job has completed
+- `VerifyConfigMap(ctx, ns, labels, annotations)` - ConfigMap exists with expected metadata
+
+*Adapter Operations* (`adapter.go`):
+- `DeployAdapter(ctx, opts)` - Deploy adapter via Helm upgrade --install
+- `UninstallAdapter(ctx, releaseName, namespace)` - Uninstall adapter via Helm
 
 ### pkg/logger
 
@@ -226,7 +262,7 @@ CLI Invoked (hyperfleet-e2e test)
   ↓
 ┌─────────────────────────────────────┐
 │ Run Test Suites                     │
-│ • Discover all e2e/*_test.go        │
+│ • Discover all e2e/*/*.go            │
 │ • Execute matched tests             │
 │ • Collect results                   │
 └─────────────────────────────────────┘
@@ -265,7 +301,7 @@ apiClient := openapi.NewClient(...)
 resp, httpResp, err := apiClient.ClustersAPI.GetCluster(ctx, clusterID).Execute()
 
 // Wrapped client (test-friendly)
-client := client.NewHyperFleetClient(apiURL)
+client, _ := client.NewHyperFleetClient(apiURL, nil)
 cluster, err := client.GetCluster(ctx, clusterID)
 ```
 

@@ -8,12 +8,7 @@ import (
 
 // HasAdapterCondition checks if an adapter condition with the given type and status exists in the conditions list
 func (h *Helper) HasAdapterCondition(conditions []openapi.AdapterCondition, condType string, status openapi.AdapterConditionStatus) bool {
-	for _, cond := range conditions {
-		if cond.Type == condType && cond.Status == status {
-			return true
-		}
-	}
-	return false
+	return hasAdapterCond(conditions, condType, status)
 }
 
 // HasResourceCondition checks if a resource condition with the given type and status exists in the conditions list
