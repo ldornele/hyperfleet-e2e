@@ -106,6 +106,7 @@ hyperfleet-e2e/
 - **[Getting Started](docs/getting-started.md)** - Run your first test in 10 minutes
 - **[Framework Architecture](docs/architecture.md)** - Understand the framework design
 - **[Development](docs/development.md)** - Write new tests
+- **[Debugging](docs/debugging.md)** - Diagnose E2E test failures
 - **[HyperFleet Architecture](https://github.com/openshift-hyperfleet/hyperfleet/tree/main/docs)** - Project-wide architecture and standards
 
 ## CI/CD Integration
