@@ -184,6 +184,27 @@ var _ = ginkgo.Describe("[Suite: adapter-failures][negative] Adapter framework c
 				}, h.Cfg.Timeouts.Adapter.Processing, h.Cfg.Polling.Interval).Should(Succeed())
 
 				ginkgo.GinkgoWriter.Printf("Successfully validated adapter failure detection and reporting\n")
+
+				// Verify non-required adapter failure does not block cluster reconciliation.
+				// cl-invalid-resource is a non-required adapter. Per ADR-0008, aggregated
+				// conditions (Reconciled, LastKnownReconciled) evaluate only required adapters,
+				// so this adapter's failure does NOT prevent reconciliation.
+				ginkgo.By("Verify cluster reconciles normally despite non-required adapter failure")
+				Eventually(func(g Gomega) {
+					cl, err := h.Client.GetCluster(ctx, clusterID)
+					g.Expect(err).NotTo(HaveOccurred(), "failed to get cluster")
+					g.Expect(cl.Status).NotTo(BeNil(), "cluster status should be present")
+
+					g.Expect(h.HasResourceCondition(cl.Status.Conditions,
+						client.ConditionTypeReconciled, openapi.ResourceConditionStatusTrue)).To(BeTrue(),
+						"cluster Reconciled should become True despite non-required adapter failure")
+
+					g.Expect(h.HasResourceCondition(cl.Status.Conditions,
+						client.ConditionTypeLastKnownReconciled, openapi.ResourceConditionStatusTrue)).To(BeTrue(),
+						"cluster LastKnownReconciled should become True despite non-required adapter failure")
+				}, h.Cfg.Timeouts.Cluster.Reconciled, h.Cfg.Polling.Interval).Should(Succeed())
+
+				ginkgo.GinkgoWriter.Printf("Verified cluster reconciled despite non-required adapter failure\n")
 			})
 	},
 )

@@ -23,7 +23,7 @@ This test validates that the adapter correctly detects and reports failures when
 | **Automation** | Automated |
 | **Version** | MVP |
 | **Created** | 2026-01-30 |
-| **Updated** | 2026-03-13 |
+| **Updated** | 2026-05-13 |
 
 
 ---
@@ -76,5 +76,18 @@ curl -X POST ${API_URL}/api/hyperfleet/v1/clusters \
    #   "message": "Invalid Kubernetes object"
    # }
 ```
+
+#### Step 4: Verify cluster reconciles normally despite non-required adapter failure
+
+**Action:**
+- Poll cluster status until reconciliation completes:
+```bash
+curl -X GET ${API_URL}/api/hyperfleet/v1/clusters/{cluster_id}
+```
+
+**Expected Result:**
+- Cluster reaches `Reconciled` condition with `status: "True"` — non-required adapter failure does not block reconciliation
+- Cluster reaches `LastKnownReconciled` condition with `status: "True"`
+- Note: `cl-invalid-resource` is not a required adapter. Per ADR-0008, aggregated conditions only evaluate required adapters, so this adapter's failure is invisible to `Reconciled`/`LastKnownReconciled`
 
 ---
