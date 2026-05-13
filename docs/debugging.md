@@ -16,7 +16,7 @@ For guidance on **writing** tests, see [development.md](development.md). For **r
 6. [Resource Cleanup Troubleshooting](#6-resource-cleanup-troubleshooting)
 7. [CI Failure Debugging](#7-ci-failure-debugging)
 8. [Common Patterns](#8-common-patterns)
-9. [Tools and Commands Quick Reference](#9-tools-and-commands-quick-reference)
+9. [Quick Reference](#9-quick-reference)
 
 
 ---
@@ -386,6 +386,7 @@ The setup step deploys the HyperFleet platform to the shared GKE cluster, stores
 2. Filter by job name: `*hyperfleet-e2e-main-e2e-tier*` (matches all tier nightlies)
 3. Click on the latest job run to view the build log
 4. Click **Artifacts** in the Prow job page to open the [GCS browser](https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com). Navigate to the workflow steps:
+
    ```text
    <job-run-id>/
    ├── build-log.txt                         # Top-level ci-operator log
@@ -410,6 +411,7 @@ The setup step deploys the HyperFleet platform to the shared GKE cluster, stores
    │           └── build-log.txt
    └── build-logs/                           # Image build logs
    ```
+
 5. When a test fails, check `<tier>-nightly/openshift-hyperfleet-e2e-setup/artifacts/` for captured component logs — these show API, Sentinel, and Adapter output at the time of the test run
 
 ### Triggering a Manual Rerun
