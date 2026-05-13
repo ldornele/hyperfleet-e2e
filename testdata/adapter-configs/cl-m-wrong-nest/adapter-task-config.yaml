@@ -333,7 +333,7 @@ post:
   post_actions:
     - name: "reportClusterStatus"
       api_call:
-        method: "POST"
+        method: "PUT"
         url: "/clusters/{{ .clusterId }}/statuses"
         headers:
           - name: "Content-Type"
