@@ -102,6 +102,7 @@ adapters:
     - "cl-namespace"
     - "cl-job"
     - "cl-deployment"
+    - "cl-maestro"
 
   # Required adapters for nodepool resources
   # List of adapter names that must be present and have correct conditions

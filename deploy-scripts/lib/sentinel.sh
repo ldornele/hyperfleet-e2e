@@ -58,6 +58,7 @@ install_sentinel_instance() {
     --set "image.registry=${IMAGE_REGISTRY}"
     --set "image.repository=${SENTINEL_IMAGE_REPO}"
     --set "image.tag=${SENTINEL_IMAGE_TAG}"
+    --set "image.pullPolicy=${IMAGE_PULL_POLICY}"
     --set "config.clients.hyperfleetApi.baseUrl=${api_url}"
     --set "config.resourceType=${resource_type}"
     --set "broker.type=${SENTINEL_BROKER_TYPE}"

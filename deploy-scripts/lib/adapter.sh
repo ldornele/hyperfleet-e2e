@@ -151,6 +151,15 @@ install_adapter_instance() {
 
   cp -r "${source_adapter_dir}" "${dest_adapter_dir}"
 
+  # Patch imagePullPolicy in task resource YAMLs (what adapters create at runtime, e.g. Jobs/Deployments);
+  # helm --set image.pullPolicy only controls the adapter pod itself — these are separate concerns
+  if [[ "${IMAGE_PULL_POLICY}" != "Always" ]]; then
+    log_verbose "Patching imagePullPolicy to ${IMAGE_PULL_POLICY} in adapter resource manifests"
+    find "${dest_adapter_dir}" -name '*.yaml' -exec \
+      sed -i.bak "s/imagePullPolicy: Always/imagePullPolicy: ${IMAGE_PULL_POLICY}/g" {} +
+    find "${dest_adapter_dir}" -name '*.bak' -delete 2>/dev/null
+  fi
+
   # Values file path (now in the chart directory)
   local values_file="${dest_adapter_dir}/values.yaml"
   if [[ ! -f "${values_file}" ]]; then
@@ -196,6 +205,7 @@ install_adapter_instance() {
     --set "image.registry=${IMAGE_REGISTRY}"
     --set "image.repository=${ADAPTER_IMAGE_REPO}"
     --set "image.tag=${ADAPTER_IMAGE_TAG}"
+    --set "image.pullPolicy=${IMAGE_PULL_POLICY}"
     --set "broker.type=${ADAPTER_BROKER_TYPE}"
     --set "broker.googlepubsub.projectId=${GCP_PROJECT_ID}"
     --set "broker.googlepubsub.createTopicIfMissing=${ADAPTER_GOOGLEPUBSUB_CREATE_TOPIC_IF_MISSING}"

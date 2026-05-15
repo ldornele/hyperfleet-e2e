@@ -51,6 +51,7 @@ install_api() {
         --set "image.registry=${IMAGE_REGISTRY}"
         --set "image.repository=${API_IMAGE_REPO}"
         --set "image.tag=${API_IMAGE_TAG}"
+        --set "image.pullPolicy=${IMAGE_PULL_POLICY}"
         --set "service.type=${API_SERVICE_TYPE}"
     )
 
