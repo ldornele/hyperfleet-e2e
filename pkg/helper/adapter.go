@@ -147,6 +147,11 @@ func (h *Helper) DeployAdapter(ctx context.Context, opts AdapterDeploymentOption
 		"--set", fmt.Sprintf("fullnameOverride=%s", releaseName),
 	)
 
+	// Override image pull policy if set (e.g. IfNotPresent for local kind clusters)
+	if policy := os.Getenv("IMAGE_PULL_POLICY"); policy != "" {
+		helmArgs = append(helmArgs, "--set", fmt.Sprintf("image.pullPolicy=%s", policy))
+	}
+
 	// Add additional --set values if provided
 	for key, value := range opts.SetValues {
 		helmArgs = append(helmArgs, "--set", fmt.Sprintf("%s=%s", key, value))

@@ -34,7 +34,6 @@ Consolidated test matrix covering positive, negative, and edge case scenarios fo
 | 15 | Adapter statuses transition during update reconciliation | Cluster | Positive | Tier1 | [update-cluster.md](update-cluster.md#test-title-adapter-statuses-transition-during-update-reconciliation) | UPDATE happy path |
 | 16 | Multiple rapid updates coalesce to latest generation | Cluster | Positive | Tier1 | [update-cluster.md](update-cluster.md#test-title-multiple-rapid-updates-coalesce-to-latest-generation) | UPDATE edge cases |
 | 17 | Stuck deletion -- adapter unable to finalize prevents hard-delete | Cluster | Negative | Tier2 | [delete-cluster.md](delete-cluster.md#test-title-stuck-deletion----adapter-unable-to-finalize-prevents-hard-delete) | DELETE error cases |
-| 18 | DELETE during initial creation before cluster reaches Reconciled | Cluster | Positive | Tier2 | [delete-cluster.md](delete-cluster.md#test-title-delete-during-initial-creation-before-cluster-reaches-reconciled) | DELETE edge cases |
 | 19 | Simultaneous DELETE requests produce a single soft-delete record | Cluster | Positive | Tier1 | [delete-cluster.md](delete-cluster.md#test-title-simultaneous-delete-requests-produce-a-single-soft-delete-record) | DELETE edge cases |
 | 20 | Adapter treats externally-deleted K8s resources as finalized | Cluster | Positive | Tier1 | [delete-cluster.md](delete-cluster.md#test-title-adapter-treats-externally-deleted-k8s-resources-as-finalized) | DELETE edge cases |
 | 21 | DELETE during update reconciliation before adapters converge | Cluster | Positive | Tier1 | [delete-cluster.md](delete-cluster.md#test-title-delete-during-update-reconciliation-before-adapters-converge) | DELETE edge cases |
@@ -42,8 +41,6 @@ Consolidated test matrix covering positive, negative, and edge case scenarios fo
 | 23 | Labels-only PATCH bumps generation and triggers reconciliation (cluster) | Cluster | Positive | Tier1 | [update-cluster.md](update-cluster.md#test-title-labels-only-patch-bumps-generation-and-triggers-reconciliation) | UPDATE edge cases |
 | 24 | Labels-only PATCH bumps generation and triggers reconciliation (nodepool) | Nodepool | Positive | Tier1 | [update-nodepool.md](update-nodepool.md#test-title-labels-only-patch-bumps-generation-and-triggers-reconciliation) | UPDATE edge cases |
 | 25 | LIST returns soft-deleted clusters alongside active clusters | Cluster | Positive | Tier1 | [delete-cluster.md](delete-cluster.md#test-title-list-returns-soft-deleted-clusters-alongside-active-clusters) | DELETE API behavior |
-| 26 | Cascade DELETE on cluster while a child nodepool is already deleting | Cluster + Nodepool | Positive | Tier2 | [delete-cluster.md](delete-cluster.md#test-title-cascade-delete-on-cluster-while-a-child-nodepool-is-already-deleting) | DELETE hierarchical |
-| 27 | Cascade DELETE on cluster while child nodepool is mid-update-reconciliation | Cluster + Nodepool | Positive | Tier2 | [delete-cluster.md](delete-cluster.md#test-title-cascade-delete-on-cluster-while-child-nodepool-is-mid-update-reconciliation) | DELETE hierarchical |
 | 28 | Soft-deleted nodepool remains visible via GET and LIST | Nodepool | Positive | Tier1 | [delete-nodepool.md](delete-nodepool.md#test-title-soft-deleted-nodepool-remains-visible-via-get-and-list) | DELETE API behavior |
 | 29 | No-op PATCH does not increment generation | Cluster | Positive | Tier1 | [update-cluster.md](update-cluster.md#test-title-no-op-patch-does-not-increment-generation) | UPDATE edge cases |
 
@@ -51,17 +48,17 @@ Consolidated test matrix covering positive, negative, and edge case scenarios fo
 
 | Category | Tier0 | Tier1 | Tier2 | Total |
 |----------|-------|-------|-------|-------|
-| Positive | 5 | 15 | 3 | 23 |
+| Positive | 5 | 15 | 0 | 20 |
 | Negative | 0 | 5 | 1 | 6 |
-| **Total** | **5** | **20** | **4** | **29** |
+| **Total** | **5** | **20** | **1** | **26** |
 
 ## Coverage by Ticket Area
 
 | Ticket Area | Test Cases | Status |
 |-------------|-----------|--------|
 | DELETE happy path (soft-delete -> Finalized -> Reconciled -> hard-delete) | #1, #3 | Covered |
-| DELETE hierarchical (subresource cleanup before parent hard-delete) | #2, #12, #26, #27 | Covered |
-| DELETE edge cases (idempotent re-DELETE, concurrent DELETEs, non-existent resource, stale pre-deletion state, NotFound-as-success, DELETE during update, name reuse after hard-delete) | #9, #11, #13, #14, #18, #19, #20, #21, #22 | Covered |
+| DELETE hierarchical (subresource cleanup before parent hard-delete) | #2, #12 | Covered |
+| DELETE edge cases (idempotent re-DELETE, concurrent DELETEs, non-existent resource, NotFound-as-success, DELETE during update, name reuse after hard-delete) | #9, #11, #13, #14, #19, #20, #21, #22 | Covered |
 | DELETE error cases (stuck adapter, unable to finalize) | #17 | Covered |
 | DELETE API behavior (409 on mutations, GET/LIST still allowed) | #4, #5, #8, #10, #25, #28 | Covered |
 | UPDATE happy path (PATCH -> generation -> reconciliation -> Reconciled) | #6, #7, #15 | Covered |
@@ -77,3 +74,6 @@ Items considered for this matrix but deliberately not covered as standalone test
 | RBAC denied on DELETE | N/A | No RBAC implementation exists in the API. Authentication is bearer-token only with no role/permission model. Revisit when RBAC is added. |
 | Concurrent PATCH + DELETE race condition | Deferred | Non-deterministic test — both outcomes (PATCH-first or DELETE-first) are acceptable. Hard to assert on reliably in E2E. Revisit if the team adds a deterministic ordering guarantee. |
 | PATCH payload validation errors (malformed JSON, schema/type violations) | Out of E2E scope | API-boundary validation happens before lifecycle business logic; cover in API integration tests rather than cross-component E2E. |
+| Cascade DELETE while child nodepool is already deleting (deleted_time preservation) | Out of E2E scope | `deleted_time` preservation is a service-layer invariant (`if np.DeletedTime == nil` guard in `CascadeSoftDelete`). Already covered by unit test (`cluster_test.go:1472`), nodepool idempotency test (`node_pool_test.go:941`), and integration test (`clusters_test.go:1077`). E2E assertion is structurally unable to verify itself due to 404 race — adapter may hard-delete the nodepool before the first poll. |
+| Cascade DELETE while child nodepool is mid-update-reconciliation (generation handoff) | Out of E2E scope | Adapter generation handling is trivial — precondition phase always re-fetches the resource from the API (`GET /clusters/{id}`) and overwrites the event's `generationId` with the latest value. `CompareGenerations()` is a simple three-way branch (not exists → create, equal → skip, different → update) with no special handling for generation gaps. The adapter mechanically processes at the correct generation regardless of concurrent PATCH + cascade DELETE. Same 404 race weakness as the already-deleting cascade test — E2E assertion structurally unable to verify itself. |
+| DELETE during initial creation before cluster reaches Reconciled | Out of E2E scope | Test acknowledges edge case is best-effort (warning when all adapters already Applied=True). Adapter behavior is mechanical — re-fetch always gets latest state including `deleted_time`, no branching on prior Applied state. Same adapter code path covered by Tier1 test #21 (DELETE during update reconciliation) on a more deterministic scenario. |
