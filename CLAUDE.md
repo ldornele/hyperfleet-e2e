@@ -42,7 +42,7 @@ Required after OpenAPI schema updates:
 make generate
 ```
 
-Extracts schema from `hyperfleet-api-spec` Go module via `hack/extract-schema/` (uses `embed.FS`) and regenerates `pkg/api/openapi/`.
+Extracts schema from `hyperfleet-api-spec` Go module (pinned via `hack/tools.go`) and regenerates `pkg/api/openapi/`.
 
 ### Run E2E Tests
 

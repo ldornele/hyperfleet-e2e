@@ -20,6 +20,8 @@ preconditions:
         field: "name"
       - name: "generationSpec"
         field: "generation"
+      - name: "is_deleting"
+        expression: "has(clusterStatus.deleted_time)"
       - name: "clusterNotReconciled"
         expression: |
           status.conditions.filter(c, c.type == "Reconciled").size() > 0
@@ -35,7 +37,7 @@ preconditions:
 
   - name: "validationCheck"
     expression: |
-      clusterNotReconciled || clusterReconciledTTL
+      is_deleting || clusterNotReconciled || clusterReconciledTTL
 
 resources:
   - name: "clusterNamespace"
@@ -56,6 +58,11 @@ resources:
       by_selectors:
         label_selector:
           hyperfleet.io/cluster-id: "{{ .clusterId }}"
+    lifecycle:
+      delete:
+        propagationPolicy: Foreground
+        when:
+          expression: "is_deleting"
 
 post:
   payloads:
@@ -97,6 +104,27 @@ post:
             message:
               expression: |
                 adapter.?errorMessage.orValue("") != "" ? adapter.?errorMessage.orValue("") : "All adapter operations in progress or completed successfully"
+          - type: "Finalized"
+            status:
+              expression: |
+                is_deleting
+                  && adapter.?executionStatus.orValue("") == "success"
+                  && !adapter.?resourcesSkipped.orValue(false)
+                  && !resources.?clusterNamespace.hasValue()
+                ? "True"
+                : "False"
+            reason:
+              expression: |
+                !is_deleting ? "NotDeleting"
+                : !resources.?clusterNamespace.hasValue()
+                  ? "CleanupConfirmed"
+                  : "CleanupInProgress"
+            message:
+              expression: |
+                !is_deleting ? "Resource not marked for deletion"
+                : !resources.?clusterNamespace.hasValue()
+                  ? "All resources deleted; cleanup confirmed"
+                  : "Deletion in progress; waiting for namespace to be removed"
         observed_generation:
           expression: "generationSpec"
         observed_time: "{{ now | date \"2006-01-02T15:04:05Z07:00\" }}"
