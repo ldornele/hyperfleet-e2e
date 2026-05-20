@@ -45,10 +45,11 @@ help: ## Display this help
 
 .PHONY: generate
 generate: $(OAPI_CODEGEN) ## Generate API client code from OpenAPI schema
+	$(GO) mod download
 	rm -rf pkg/api/openapi
 	mkdir -p pkg/api/openapi openapi
 	@rm -f openapi/openapi.yaml
-	@$(GO) run -mod=mod github.com/openshift-hyperfleet/hyperfleet-e2e/hack/extract-schema
+	@cp "$$($(GO) list -m -f '{{.Dir}}' github.com/openshift-hyperfleet/hyperfleet-api-spec)/schemas/core/openapi.yaml" openapi/openapi.yaml
 	$(OAPI_CODEGEN) --config openapi/oapi-codegen.yaml openapi/openapi.yaml
 	@echo "✓ API client code generated in pkg/api/openapi/"
 

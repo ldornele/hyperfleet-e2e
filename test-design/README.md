@@ -98,8 +98,7 @@ A Tier2 failure means **edge cases or rare scenarios don't work as expected**. T
 |-----------|-----------|
 | [Cluster reaches correct status after adapter crash and recovery](testcases/cluster.md#test-title-cluster-can-reach-correct-status-after-adapter-crash-and-recovery) | Infrastructure recovery -- involves killing adapter pods and verifying self-healing. Crashes are rare; operators can restart pods manually |
 | [Maestro server unavailability graceful handling](testcases/adapter-with-maestro-transport.md#test-title-adapter-can-handle-maestro-server-unavailability-gracefully) | Infrastructure recovery -- simulates Maestro outage. Server failures are rare and recoverable |
-| [DELETE during initial creation before Reconciled](testcases/delete-cluster.md#test-title-delete-during-initial-creation-before-cluster-reaches-reconciled) | Race condition -- user deletes a cluster before it finishes creating. Unusual timing scenario |
-| [Cascade DELETE while child nodepool is mid-update](testcases/delete-cluster.md#test-title-cascade-delete-on-cluster-while-child-nodepool-is-mid-update-reconciliation) | Race condition -- cluster deletion while nodepool is being updated. Requires specific timing overlap |
+| [Stuck deletion -- adapter unable to finalize prevents hard-delete](testcases/delete-cluster.md#test-title-stuck-deletion----adapter-unable-to-finalize-prevents-hard-delete) | Infrastructure recovery -- simulates adapter unavailability during deletion. Verifies system won't hard-delete prematurely and recovers when adapter returns |
 
 ### Tier Decision Flowchart
 
