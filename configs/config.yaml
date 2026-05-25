@@ -31,15 +31,17 @@ api:
 timeouts:
   cluster:
     # Maximum time to wait for cluster Reconciled condition
-    # Recommended: 5m
     #
     # Format: Duration string (e.g., "30m", "1h", "5m")
     # Can be overridden by: HYPERFLEET_TIMEOUTS_CLUSTER_RECONCILED
-    reconciled: 5m
+    reconciled: 2m
+
+    # Maximum time to wait for cluster hard-delete (404 response)
+    # Can be overridden by: HYPERFLEET_TIMEOUTS_CLUSTER_DELETED
+    deleted: 2m
 
   nodepool:
     # Maximum time to wait for nodepool Reconciled condition
-    # Recommended: 2m
     #
     # Format: Duration string
     # Can be overridden by: HYPERFLEET_TIMEOUTS_NODEPOOL_RECONCILED
@@ -47,7 +49,6 @@ timeouts:
 
   adapter:
     # Maximum time to wait for adapter processing
-    # Recommended: 2m
     #
     # Format: Duration string
     # Can be overridden by: HYPERFLEET_TIMEOUTS_ADAPTER_PROCESSING

@@ -32,10 +32,13 @@ const (
 // Default timeout values
 const (
 	// DefaultClusterReconciledTimeout is the default timeout for waiting for a cluster to become reconciled
-	DefaultClusterReconciledTimeout = 30 * time.Minute
+	DefaultClusterReconciledTimeout = 2 * time.Minute
+
+	// DefaultClusterDeletedTimeout is the default timeout for waiting for a cluster to be hard-deleted (404)
+	DefaultClusterDeletedTimeout = 2 * time.Minute
 
 	// DefaultNodePoolReconciledTimeout is the default timeout for waiting for a nodepool to become reconciled
-	DefaultNodePoolReconciledTimeout = 30 * time.Minute
+	DefaultNodePoolReconciledTimeout = 5 * time.Minute
 
 	// DefaultAdapterProcessingTimeout is the default timeout for waiting for adapter conditions
 	DefaultAdapterProcessingTimeout = 5 * time.Minute

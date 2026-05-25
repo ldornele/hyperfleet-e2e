@@ -498,6 +498,11 @@ var _ = ginkgo.Describe("[Suite: adapter][maestro-transport][negative] Adapter F
 				releaseName := helper.GenerateAdapterReleaseName(helper.ResourceTypeClusters, adapterName)
 
 				// Deploy the test adapter configured to target unregistered consumer
+				ginkgo.By("Purge adapter event queue to start from a clean state")
+				if err := h.PurgeAdapterQueue(ctx, adapterName); err != nil {
+					ginkgo.GinkgoWriter.Printf("Warning: failed to purge queue for %s: %v\n", adapterName, err)
+				}
+
 				ginkgo.By("Deploy test adapter with unregistered consumer configuration")
 
 				// Create deployment options from base and add test-specific fields
@@ -638,6 +643,11 @@ var _ = ginkgo.Describe("[Suite: adapter][maestro-transport][negative] Adapter F
 				// Generate unique release name for this deployment
 				releaseName := helper.GenerateAdapterReleaseName(helper.ResourceTypeClusters, adapterName)
 				// Deploy the test adapter with wrong main discovery configuration
+				ginkgo.By("Purge adapter event queue to start from a clean state")
+				if err := h.PurgeAdapterQueue(ctx, adapterName); err != nil {
+					ginkgo.GinkgoWriter.Printf("Warning: failed to purge queue for %s: %v\n", adapterName, err)
+				}
+
 				ginkgo.By("Deploy test adapter with wrong ManifestWork discovery name")
 
 				// Create deployment options from base and add test-specific fields
@@ -821,6 +831,11 @@ var _ = ginkgo.Describe("[Suite: adapter][maestro-transport][negative] Adapter F
 				releaseName := helper.GenerateAdapterReleaseName(helper.ResourceTypeClusters, adapterName)
 
 				// Deploy the test adapter with empty discovery configuration
+				ginkgo.By("Purge adapter event queue to start from a clean state")
+				if err := h.PurgeAdapterQueue(ctx, adapterName); err != nil {
+					ginkgo.GinkgoWriter.Printf("Warning: failed to purge queue for %s: %v\n", adapterName, err)
+				}
+
 				ginkgo.By("Deploy test adapter with empty nested discovery configuration")
 
 				// Create deployment options from base and add test-specific fields
@@ -980,6 +995,11 @@ var _ = ginkgo.Describe("[Suite: adapter][maestro-transport][negative] Adapter F
 				releaseName := helper.GenerateAdapterReleaseName(helper.ResourceTypeClusters, adapterName)
 
 				// Deploy the test adapter with invalid API URL
+				ginkgo.By("Purge adapter event queue to start from a clean state")
+				if err := h.PurgeAdapterQueue(ctx, adapterName); err != nil {
+					ginkgo.GinkgoWriter.Printf("Warning: failed to purge queue for %s: %v\n", adapterName, err)
+				}
+
 				ginkgo.By("Deploy test adapter with unreachable API URL configuration")
 
 				// Create deployment options with overridden API URL

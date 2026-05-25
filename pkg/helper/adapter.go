@@ -122,10 +122,34 @@ func (h *Helper) DeployAdapter(ctx context.Context, opts AdapterDeploymentOption
 		defer func() { _ = os.Unsetenv("BROKER_TYPE") }()
 	}
 
+	// Compute extra environment variables for the envsubst subprocess.
+	// These are scoped to the subprocess and do not mutate the process-global environment.
+	var extraEnv []string
+
+	// When using GCP Pub/Sub, ensure the subscription is created if it doesn't exist.
+	// This is required for adapters deployed for the first time (no pre-existing subscription).
+	if os.Getenv("BROKER_TYPE") == "googlepubsub" && os.Getenv("ADAPTER_GOOGLEPUBSUB_CREATE_SUBSCRIPTION_IF_MISSING") == "" {
+		extraEnv = append(extraEnv, "ADAPTER_GOOGLEPUBSUB_CREATE_SUBSCRIPTION_IF_MISSING=true")
+	}
+
+	// Resolve the in-cluster HyperFleet API URL for adapters running inside Kubernetes.
+	// The external LoadBalancer IP (HYPERFLEET_API_URL) is not routable from within GKE pods.
+	// We look up the hyperfleet-api service across all namespaces and construct the FQDN so
+	// that adapters deployed to the test namespace can reach the API regardless of where it runs.
+	if os.Getenv("ADAPTER_HYPERFLEET_API_URL") == "" && h.K8sClient != nil {
+		if internalURL, err := h.resolveInternalAPIURL(ctx); err == nil && internalURL != "" {
+			extraEnv = append(extraEnv, "ADAPTER_HYPERFLEET_API_URL="+internalURL)
+			logger.Info("resolved in-cluster HyperFleet API URL for adapters", "url", internalURL)
+		} else {
+			logger.Info("could not resolve in-cluster API URL, falling back to HYPERFLEET_API_URL",
+				"error", err)
+		}
+	}
+
 	// Expand environment variables in values.yaml in-place using envsubst
 	logger.Info("expanding environment variables in values.yaml in-place", "values_file", valuesFilePath)
 
-	expandedContent, err := expandEnvVarsInYAMLToBytes(ctx, valuesFilePath)
+	expandedContent, err := expandEnvVarsInYAMLToBytes(ctx, valuesFilePath, extraEnv)
 	if err != nil {
 		return fmt.Errorf("failed to expand environment variables in values.yaml: %w", err)
 	}
@@ -134,6 +158,21 @@ func (h *Helper) DeployAdapter(ctx context.Context, opts AdapterDeploymentOption
 	}
 
 	logger.Info("successfully expanded environment variables in values.yaml")
+
+	// Expand environment variables in adapter-config.yaml in-place using envsubst.
+	// This allows adapter configs to reference env vars like ${HYPERFLEET_API_URL}
+	// so the correct API endpoint is injected at deploy time regardless of namespace.
+	adapterConfigPath := filepath.Join(destAdapterDir, "adapter-config.yaml")
+	if _, statErr := os.Stat(adapterConfigPath); statErr == nil {
+		expandedAdapterConfig, err := expandEnvVarsInYAMLToBytes(ctx, adapterConfigPath, extraEnv)
+		if err != nil {
+			return fmt.Errorf("failed to expand environment variables in adapter-config.yaml: %w", err)
+		}
+		if err := os.WriteFile(adapterConfigPath, expandedAdapterConfig, 0600); err != nil {
+			return fmt.Errorf("failed to overwrite adapter-config.yaml with expanded content: %w", err)
+		}
+		logger.Info("successfully expanded environment variables in adapter-config.yaml")
+	}
 
 	// Build Helm command with values file
 	helmArgs := []string{
@@ -185,6 +224,22 @@ func (h *Helper) DeployAdapter(ctx context.Context, opts AdapterDeploymentOption
 		"output", string(output))
 
 	return nil
+}
+
+// resolveInternalAPIURL looks up the hyperfleet-api Kubernetes service in the configured
+// namespace and returns an in-cluster FQDN URL that adapters deployed in any namespace can use.
+// This is needed because the external LoadBalancer IP is not routable from within GKE pods.
+func (h *Helper) resolveInternalAPIURL(ctx context.Context) (string, error) {
+	ns := h.Cfg.Namespace
+	svc, err := h.K8sClient.CoreV1().Services(ns).Get(ctx, "hyperfleet-api", metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get hyperfleet-api service in namespace %q: %w", ns, err)
+	}
+	if len(svc.Spec.Ports) == 0 {
+		return "", fmt.Errorf("hyperfleet-api service has no ports")
+	}
+	port := svc.Spec.Ports[0].Port
+	return fmt.Sprintf("http://hyperfleet-api.%s.svc.cluster.local:%d", ns, port), nil
 }
 
 // UninstallAdapter uninstalls an adapter using Helm uninstall
@@ -389,7 +444,7 @@ func (h *Helper) saveDiagnosticLogs(ctx context.Context, adapterName, releaseNam
 
 // expandEnvVarsInYAMLToBytes expands environment variables in a YAML file using envsubst
 // Returns the expanded content as bytes
-func expandEnvVarsInYAMLToBytes(ctx context.Context, yamlPath string) ([]byte, error) {
+func expandEnvVarsInYAMLToBytes(ctx context.Context, yamlPath string, extraEnv []string) ([]byte, error) {
 	// Read the YAML file
 	content, err := os.ReadFile(yamlPath) // #nosec G304 -- yamlPath is constructed from trusted config
 	if err != nil {
@@ -399,6 +454,9 @@ func expandEnvVarsInYAMLToBytes(ctx context.Context, yamlPath string) ([]byte, e
 	// Use envsubst command to expand environment variables
 	cmd := exec.CommandContext(ctx, "envsubst")
 	cmd.Stdin = bytes.NewReader(content)
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -409,6 +467,80 @@ func expandEnvVarsInYAMLToBytes(ctx context.Context, yamlPath string) ([]byte, e
 	}
 
 	return stdout.Bytes(), nil
+}
+
+// PurgeAdapterQueue purges all pending messages from the broker queue for the given adapter.
+// This is used before deploying a test adapter to avoid processing a stale message backlog
+// accumulated while the adapter was uninstalled between test runs.
+//
+// Broker dispatch is determined by the BROKER_TYPE environment variable:
+//   - "googlepubsub" (default when unset): deletes the Pub/Sub subscription so the adapter
+//     recreates it fresh (the chart sets createSubscriptionIfMissing: true via DeployAdapter).
+//     Subscription name pattern: {namespace}-clusters-{adapterName}
+//   - "rabbitmq": purges the queue via rabbitmqctl.
+//     Queue name pattern: {namespace}-clusters-{adapterName}-CHANGE_ME
+//     The "CHANGE_ME" suffix is the literal subscription_id in adapter-config.yaml files.
+//
+// If the queue/subscription does not exist or the broker is unreachable, this is a no-op.
+func (h *Helper) PurgeAdapterQueue(ctx context.Context, adapterName string) error {
+	brokerType := os.Getenv("BROKER_TYPE")
+	if brokerType == "" {
+		brokerType = "googlepubsub" // matches DeployAdapter's default
+	}
+	switch brokerType {
+	case "googlepubsub":
+		subscriptionID := fmt.Sprintf("%s-clusters-%s", h.Cfg.Namespace, adapterName)
+		return h.DeletePubSubSubscription(ctx, subscriptionID)
+	case "rabbitmq":
+		return h.purgeRabbitMQQueue(ctx, adapterName)
+	default:
+		return fmt.Errorf("unsupported broker type %q", brokerType)
+	}
+}
+
+// purgeRabbitMQQueue is the RabbitMQ-specific implementation used by PurgeAdapterQueue.
+func (h *Helper) purgeRabbitMQQueue(ctx context.Context, adapterName string) error {
+	const (
+		rabbitMQNamespace    = "rabbitmq"
+		rabbitMQPodLabelKey  = "app"
+		rabbitMQPodLabelVal  = "rabbitmq"
+		brokerSubscriptionID = "CHANGE_ME" // literal subscription_id in adapter-config.yaml
+	)
+
+	queueName := fmt.Sprintf("%s-clusters-%s-%s", h.Cfg.Namespace, adapterName, brokerSubscriptionID)
+	logger.Info("purging RabbitMQ adapter queue", "queue", queueName, "adapter", adapterName)
+
+	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	pods, err := h.K8sClient.CoreV1().Pods(rabbitMQNamespace).List(cmdCtx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=%s", rabbitMQPodLabelKey, rabbitMQPodLabelVal),
+	})
+	if err != nil {
+		logger.Error("failed to list RabbitMQ pods", "namespace", rabbitMQNamespace, "error", err)
+		return fmt.Errorf("failed to list RabbitMQ pods in namespace %q: %w", rabbitMQNamespace, err)
+	}
+	if len(pods.Items) == 0 {
+		logger.Info("no RabbitMQ pods found, skipping queue purge", "namespace", rabbitMQNamespace)
+		return nil
+	}
+
+	podName := pods.Items[0].Name
+	cmd := exec.CommandContext(cmdCtx, "kubectl", "exec", "-n", rabbitMQNamespace, // #nosec G204 -- podName and queueName from trusted config
+		podName, "--", "rabbitmqctl", "purge_queue", queueName)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		outputStr := string(output)
+		if strings.Contains(outputStr, "not_found") || strings.Contains(outputStr, "does not exist") {
+			logger.Info("queue not found, nothing to purge", "queue", queueName)
+			return nil
+		}
+		return fmt.Errorf("failed to purge RabbitMQ queue %s: %w (output: %s)", queueName, err, outputStr)
+	}
+
+	logger.Info("RabbitMQ queue purged successfully", "queue", queueName)
+	return nil
 }
 
 // DeletePubSubSubscription deletes a Google Pub/Sub subscription.
