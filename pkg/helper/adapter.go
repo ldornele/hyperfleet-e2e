@@ -114,23 +114,28 @@ func (h *Helper) DeployAdapter(ctx context.Context, opts AdapterDeploymentOption
 	// Determine the values.yaml file path in the copied adapter directory
 	valuesFilePath := filepath.Join(destAdapterDir, "values.yaml")
 
+	// Default BROKER_TYPE to googlepubsub if not set so envsubst produces a valid value
+	if os.Getenv("BROKER_TYPE") == "" {
+		if err := os.Setenv("BROKER_TYPE", "googlepubsub"); err != nil {
+			return fmt.Errorf("failed to set default BROKER_TYPE: %w", err)
+		}
+		defer func() { _ = os.Unsetenv("BROKER_TYPE") }()
+	}
+
 	// Expand environment variables in values.yaml in-place using envsubst
 	logger.Info("expanding environment variables in values.yaml in-place", "values_file", valuesFilePath)
 
-	// Expand environment variables in values.yaml using envsubst
 	expandedContent, err := expandEnvVarsInYAMLToBytes(ctx, valuesFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to expand environment variables in values.yaml: %w", err)
 	}
-
-	// Overwrite values.yaml with expanded content
 	if err := os.WriteFile(valuesFilePath, expandedContent, 0600); err != nil {
 		return fmt.Errorf("failed to overwrite values.yaml with expanded content: %w", err)
 	}
 
 	logger.Info("successfully expanded environment variables in values.yaml")
 
-	// Build Helm command with single values file
+	// Build Helm command with values file
 	helmArgs := []string{
 		"upgrade", "--install",
 		releaseName,

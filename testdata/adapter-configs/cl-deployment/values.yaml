@@ -12,6 +12,7 @@ adapterTaskConfig:
     deployment.yaml: cl-deployment/adapter-task-resource-deployment.yaml
 
 broker:
+  type: googlepubsub
   create: true
   googlepubsub:
     projectId: CHANGE_ME

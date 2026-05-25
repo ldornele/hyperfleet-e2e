@@ -12,6 +12,7 @@ adapterTaskConfig:
     job.yaml: cl-job/adapter-task-resource-job.yaml
 
 broker:
+  type: googlepubsub
   create: true
   googlepubsub:
     projectId: CHANGE_ME

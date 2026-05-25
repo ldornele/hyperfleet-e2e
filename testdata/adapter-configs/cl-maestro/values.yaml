@@ -12,6 +12,7 @@ adapterTaskConfig:
     manifestwork.yaml: cl-maestro/adapter-task-resource-manifestwork.yaml
 
 broker:
+  type: googlepubsub
   create: true
   googlepubsub:
     projectId: CHANGE_ME
