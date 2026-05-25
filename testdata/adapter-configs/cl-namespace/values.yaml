@@ -11,6 +11,7 @@ adapterTaskConfig:
     task-config.yaml: cl-namespace/adapter-task-config.yaml
 
 broker:
+  type: googlepubsub
   create: true
   googlepubsub:
     projectId: CHANGE_ME

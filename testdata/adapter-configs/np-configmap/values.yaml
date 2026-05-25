@@ -12,6 +12,7 @@ adapterTaskConfig:
     configmap.yaml: np-configmap/adapter-task-resource-configmap.yaml
 
 broker:
+  type: googlepubsub
   create: true
   googlepubsub:
     projectId: CHANGE_ME
