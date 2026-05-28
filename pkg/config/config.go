@@ -144,6 +144,7 @@ type TimeoutsConfig struct {
 // ClusterTimeouts contains cluster-related timeouts
 type ClusterTimeouts struct {
 	Reconciled time.Duration `yaml:"reconciled" mapstructure:"reconciled"`
+	Deleted    time.Duration `yaml:"deleted" mapstructure:"deleted"`
 }
 
 // NodePoolTimeouts contains nodepool-related timeouts
@@ -285,6 +286,9 @@ func (c *Config) applyDefaults() {
 	if c.Timeouts.Cluster.Reconciled == 0 {
 		c.Timeouts.Cluster.Reconciled = DefaultClusterReconciledTimeout
 	}
+	if c.Timeouts.Cluster.Deleted == 0 {
+		c.Timeouts.Cluster.Deleted = DefaultClusterDeletedTimeout
+	}
 	if c.Timeouts.NodePool.Reconciled == 0 {
 		c.Timeouts.NodePool.Reconciled = DefaultNodePoolReconciledTimeout
 	}
@@ -410,6 +414,23 @@ func (c *Config) Validate() error {
       • Config file: api.url: <url>`)
 	}
 
+	// Validate that all timeouts and polling interval are positive
+	if c.Timeouts.Cluster.Reconciled <= 0 {
+		return fmt.Errorf("configuration validation failed: timeouts.cluster.reconciled must be a positive duration, got %v", c.Timeouts.Cluster.Reconciled)
+	}
+	if c.Timeouts.Cluster.Deleted <= 0 {
+		return fmt.Errorf("configuration validation failed: timeouts.cluster.deleted must be a positive duration, got %v", c.Timeouts.Cluster.Deleted)
+	}
+	if c.Timeouts.NodePool.Reconciled <= 0 {
+		return fmt.Errorf("configuration validation failed: timeouts.nodepool.reconciled must be a positive duration, got %v", c.Timeouts.NodePool.Reconciled)
+	}
+	if c.Timeouts.Adapter.Processing <= 0 {
+		return fmt.Errorf("configuration validation failed: timeouts.adapter.processing must be a positive duration, got %v", c.Timeouts.Adapter.Processing)
+	}
+	if c.Polling.Interval <= 0 {
+		return fmt.Errorf("configuration validation failed: polling.interval must be a positive duration, got %v", c.Polling.Interval)
+	}
+
 	return nil
 }
 
@@ -422,6 +443,7 @@ func (c *Config) Display() {
 		"output_dir", c.OutputDir,
 		"testdata_dir", c.TestDataDir,
 		"timeout_cluster_reconciled", c.Timeouts.Cluster.Reconciled,
+		"timeout_cluster_deleted", c.Timeouts.Cluster.Deleted,
 		"timeout_nodepool_reconciled", c.Timeouts.NodePool.Reconciled,
 		"timeout_adapter_processing", c.Timeouts.Adapter.Processing,
 		"polling_interval", c.Polling.Interval,
