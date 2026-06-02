@@ -116,3 +116,20 @@ func (c *HyperFleetClient) PatchClusterFromPayload(ctx context.Context, clusterI
 
 	return c.PatchCluster(ctx, clusterID, *req)
 }
+
+// ForceDeleteCluster permanently removes a cluster stuck in Finalizing from the database.
+func (c *HyperFleetClient) ForceDeleteCluster(ctx context.Context, clusterID, reason string) error {
+	logger.Info("force-deleting cluster", "cluster_id", clusterID, "reason", reason)
+
+	resp, err := c.Client.ForceDeleteCluster(ctx, clusterID, openapi.ForceDeleteRequest{Reason: reason})
+	if err != nil {
+		return fmt.Errorf("failed to force-delete cluster: %w", err)
+	}
+
+	if err := handleHTTPNoBodyResponse(resp, http.StatusNoContent, "force-delete cluster"); err != nil {
+		return err
+	}
+
+	logger.Info("cluster force-deleted", "cluster_id", clusterID)
+	return nil
+}

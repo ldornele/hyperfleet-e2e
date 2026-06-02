@@ -15,6 +15,7 @@
 12. [DELETE during update reconciliation before adapters converge](#test-title-delete-during-update-reconciliation-before-adapters-converge)
 13. [Recreate cluster with same name after hard-delete](#test-title-recreate-cluster-with-same-name-after-hard-delete)
 14. [LIST returns soft-deleted clusters alongside active clusters](#test-title-list-returns-soft-deleted-clusters-alongside-active-clusters)
+15. [Force-delete a cluster stuck in Finalizing removes cluster and child nodepools](#test-title-force-delete-a-cluster-stuck-in-finalizing-removes-cluster-and-child-nodepools)
 
 ---
 
@@ -1385,5 +1386,99 @@ curl -X DELETE ${API_URL}/api/hyperfleet/v1/clusters/{active_cluster_id}
 
 **Expected Result:**
 - Both clusters are eventually hard-deleted (GET returns HTTP 404)
+
+---
+
+## Test Title: Force-delete a cluster stuck in Finalizing removes cluster and child nodepools
+
+### Description
+
+This test validates the force-delete escape hatch for clusters stuck in Finalizing state. When an adapter is unavailable and cannot report `Finalized=True`, normal deletion stalls indefinitely. Force-delete bypasses the adapter finalization requirement, immediately hard-deletes the cluster, and cascades removal to all child nodepools in the same transaction.
+
+---
+
+| **Field** | **Value** |
+|-----------|-----------|
+| **Pos/Neg** | Positive |
+| **Priority** | Tier2 |
+| **Status** | Draft |
+| **Automation** | Automated |
+| **Version** | Post-MVP |
+| **Created** | 2026-06-01 |
+| **Updated** | 2026-06-01 |
+
+---
+
+### Preconditions
+
+1. Environment is prepared using [hyperfleet-infra](https://github.com/openshift-hyperfleet/hyperfleet-infra) with all required platform resources
+2. HyperFleet API and HyperFleet Sentinel services are deployed and running successfully
+3. The adapters defined in testdata/adapter-configs are all deployed successfully
+
+---
+
+### Test Steps
+
+#### Step 1: Create a cluster and nodepool, wait for Reconciled
+
+**Action:**
+```bash
+curl -X POST ${API_URL}/api/hyperfleet/v1/clusters \
+  -H "Content-Type: application/json" \
+  -d @testdata/payloads/clusters/cluster-request.json
+curl -X POST ${API_URL}/api/hyperfleet/v1/clusters/{cluster_id}/nodepools \
+  -H "Content-Type: application/json" \
+  -d @testdata/payloads/nodepools/nodepool-request.json
+```
+- Wait for both cluster and nodepool to reach `Reconciled: True`
+
+**Expected Result:**
+- Cluster and nodepool are both `Reconciled: True`
+
+#### Step 2: Scale down an existing cluster adapter and soft-delete the cluster
+
+**Action:**
+- Scale the pre-deployed cluster adapter (`Adapters.Cluster[0]`) to 0 replicas to simulate unavailability
+- Send DELETE request for the cluster:
+```bash
+curl -X DELETE ${API_URL}/api/hyperfleet/v1/clusters/{cluster_id}
+```
+
+**Expected Result:**
+- DELETE returns HTTP 202 with `deleted_time` set
+- Cluster remains stuck in Finalizing (`Reconciled: False`) because the adapter cannot process the delete event
+
+#### Step 3: Verify cluster is genuinely stuck in Finalizing
+
+**Action:**
+- Use `Consistently` to poll the cluster over a period and confirm it does not get hard-deleted
+
+**Expected Result:**
+- Cluster remains accessible via GET with `deleted_time` set
+- `Reconciled` condition remains `False` throughout the observation period
+
+#### Step 4: Force-delete the cluster and verify cascade removal
+
+**Action:**
+```bash
+curl -X POST ${API_URL}/api/hyperfleet/v1/clusters/{cluster_id}/force-delete \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "E2E test: cluster adapter unavailable"}'
+```
+- Poll until cluster returns HTTP 404
+- Poll until child nodepool returns HTTP 404
+
+**Expected Result:**
+- Force-delete returns HTTP 204
+- Cluster is hard-deleted (GET returns HTTP 404)
+- Child nodepool is also hard-deleted (GET returns HTTP 404), confirming cascade removal
+
+#### Step 5: Cleanup resources
+
+**Action:**
+- Restore the cluster adapter to 1 replica
+
+**Expected Result:**
+- Cluster adapter is running again
 
 ---

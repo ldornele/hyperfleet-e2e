@@ -2,10 +2,13 @@ package helper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
 	"time"
+
+	"github.com/onsi/ginkgo/v2"
 
 	"github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/client"
 	k8sclient "github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/client/kubernetes"
@@ -49,6 +52,11 @@ func (h *Helper) CleanupTestCluster(ctx context.Context, clusterID string) error
 	logger.Info("deleting cluster via API", "cluster_id", clusterID)
 
 	if _, err := h.Client.DeleteCluster(ctx, clusterID); err != nil {
+		var httpErr *client.HTTPError
+		if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusNotFound {
+			logger.Info("cluster already deleted", "cluster_id", clusterID)
+			return nil
+		}
 		return fmt.Errorf("delete cluster %s: %w", clusterID, err)
 	}
 
@@ -70,6 +78,16 @@ func (h *Helper) CleanupTestCluster(ctx context.Context, clusterID string) error
 	}
 
 	return fmt.Errorf("cluster %s not hard-deleted within %s", clusterID, h.Cfg.Timeouts.Cluster.Deleted)
+}
+
+// DeferClusterCleanup registers a DeferCleanup that will delete the cluster after the test,
+// regardless of pass/fail. If the cluster was already deleted, cleanup logs a warning.
+func (h *Helper) DeferClusterCleanup(clusterID string) {
+	ginkgo.DeferCleanup(func(ctx context.Context) {
+		if err := h.CleanupTestCluster(ctx, clusterID); err != nil {
+			ginkgo.GinkgoWriter.Printf("Warning: failed to cleanup cluster %s: %v\n", clusterID, err)
+		}
+	})
 }
 
 // CleanupTestNodePool deletes the test nodepool via the HyperFleet API and waits for hard-delete (404).

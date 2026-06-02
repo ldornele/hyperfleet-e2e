@@ -74,3 +74,26 @@ func handleHTTPResponse[T any](resp *http.Response, expectedStatus int, action s
 
 	return &result, nil
 }
+
+// handleHTTPNoBodyResponse validates the status code for responses with no body (e.g. 204).
+func handleHTTPNoBodyResponse(resp *http.Response, expectedStatus int, action string) error {
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != expectedStatus {
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return &HTTPError{
+				StatusCode: resp.StatusCode,
+				Action:     action,
+				Body:       fmt.Sprintf("failed to read error response body: %v", err),
+			}
+		}
+		return &HTTPError{
+			StatusCode: resp.StatusCode,
+			Action:     action,
+			Body:       string(body),
+		}
+	}
+
+	return nil
+}

@@ -116,3 +116,20 @@ func (c *HyperFleetClient) PatchNodePoolFromPayload(ctx context.Context, cluster
 
 	return c.PatchNodePool(ctx, clusterID, nodepoolID, *req)
 }
+
+// ForceDeleteNodePool permanently removes a nodepool stuck in Finalizing from the database.
+func (c *HyperFleetClient) ForceDeleteNodePool(ctx context.Context, clusterID, nodepoolID, reason string) error {
+	logger.Info("force-deleting nodepool", "cluster_id", clusterID, "nodepool_id", nodepoolID, "reason", reason)
+
+	resp, err := c.Client.ForceDeleteNodePool(ctx, clusterID, nodepoolID, openapi.ForceDeleteRequest{Reason: reason})
+	if err != nil {
+		return fmt.Errorf("failed to force-delete nodepool: %w", err)
+	}
+
+	if err := handleHTTPNoBodyResponse(resp, http.StatusNoContent, "force-delete nodepool"); err != nil {
+		return err
+	}
+
+	logger.Info("nodepool force-deleted", "cluster_id", clusterID, "nodepool_id", nodepoolID)
+	return nil
+}
