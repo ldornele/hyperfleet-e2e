@@ -80,6 +80,9 @@ var _ = ginkgo.Describe("[Suite: nodepool][delete] Force-Delete Single NodePool 
 					npCheck, err := h.Client.GetNodePool(ctx, clusterID, nodepoolID)
 					g.Expect(err).NotTo(HaveOccurred(), "nodepool should still be accessible")
 					g.Expect(npCheck.DeletedTime).NotTo(BeNil(), "nodepool should still be soft-deleted")
+					g.Expect(h.HasResourceCondition(npCheck.Status.Conditions,
+						client.ConditionTypeReconciled, openapi.ResourceConditionStatusFalse)).To(BeTrue(),
+						"Reconciled should be False while stuck")
 				}, h.Cfg.Timeouts.Adapter.Processing/4, h.Cfg.Polling.Interval).Should(Succeed())
 
 				// --- Force-delete the nodepool and verify parent cluster is unaffected ---
