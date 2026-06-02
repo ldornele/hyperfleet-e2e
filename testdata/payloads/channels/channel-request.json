@@ -1,0 +1,11 @@
+{
+  "kind": "Channel",
+  "name": "ch-{{.Random}}",
+  "spec": {
+    "is_default": false,
+    "enabled_regex": ".*"
+  },
+  "labels": {
+    "environment": "test"
+  }
+}

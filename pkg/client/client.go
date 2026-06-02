@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/api/openapi"
@@ -13,7 +14,9 @@ import (
 // HyperFleetClient is a wrapper around the generated Client that provides
 // convenience methods and better error handling for E2E tests.
 type HyperFleetClient struct {
-	*openapi.Client
+	*openapi.Client              // Generated typed client for clusters/nodepools
+	httpClient      *http.Client // Raw HTTP client for generic resource requests
+	baseURL         string       // API base URL (no trailing slash)
 }
 
 // NewHyperFleetClient creates a new HyperFleet API client.
@@ -28,7 +31,9 @@ func NewHyperFleetClient(baseURL string, httpClient *http.Client) (*HyperFleetCl
 	}
 
 	return &HyperFleetClient{
-		Client: client,
+		Client:     client,
+		httpClient: httpClient,
+		baseURL:    strings.TrimRight(baseURL, "/"),
 	}, nil
 }
 
