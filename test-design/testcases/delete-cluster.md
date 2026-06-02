@@ -15,6 +15,9 @@
 12. [DELETE during update reconciliation before adapters converge](#test-title-delete-during-update-reconciliation-before-adapters-converge)
 13. [Recreate cluster with same name after hard-delete](#test-title-recreate-cluster-with-same-name-after-hard-delete)
 14. [LIST returns soft-deleted clusters alongside active clusters](#test-title-list-returns-soft-deleted-clusters-alongside-active-clusters)
+15. [Force-delete a cluster stuck in Finalizing removes cluster and child nodepools](#test-title-force-delete-a-cluster-stuck-in-finalizing-removes-cluster-and-child-nodepools)
+16. [Adapter handles 404 gracefully after force-delete](#test-title-adapter-handles-404-gracefully-after-force-delete)
+17. [Force-delete rejected for invalid preconditions](#test-title-force-delete-rejected-for-invalid-preconditions)
 
 ---
 
@@ -1385,5 +1388,295 @@ curl -X DELETE ${API_URL}/api/hyperfleet/v1/clusters/{active_cluster_id}
 
 **Expected Result:**
 - Both clusters are eventually hard-deleted (GET returns HTTP 404)
+
+---
+
+## Test Title: Force-delete a cluster stuck in Finalizing removes cluster and child nodepools
+
+### Description
+
+This test validates the force-delete escape hatch for clusters stuck in Finalizing state. When an adapter is unavailable and cannot report `Finalized=True`, normal deletion stalls indefinitely. Force-delete bypasses the adapter finalization requirement, immediately hard-deletes the cluster, and cascades removal to all child nodepools in the same transaction.
+
+---
+
+| **Field** | **Value** |
+|-----------|-----------|
+| **Pos/Neg** | Positive |
+| **Priority** | Tier2 |
+| **Status** | Draft |
+| **Automation** | Automated |
+| **Version** | Post-MVP |
+| **Created** | 2026-06-01 |
+| **Updated** | 2026-06-01 |
+
+---
+
+### Preconditions
+
+1. Environment is prepared using [hyperfleet-infra](https://github.com/openshift-hyperfleet/hyperfleet-infra) with all required platform resources
+2. HyperFleet API and HyperFleet Sentinel services are deployed and running successfully
+3. The adapters defined in testdata/adapter-configs are all deployed successfully
+4. Adapter Helm chart repository is accessible for deploying the stuck-adapter
+
+---
+
+### Test Steps
+
+#### Step 1: Deploy a stuck-adapter and register it as a required adapter
+
+**Action:**
+- Deploy a dedicated adapter (`cl-stuck`) via Helm chart
+- Upgrade the API to include `cl-stuck` in the required cluster adapters list
+
+**Expected Result:**
+- The stuck-adapter is deployed and running
+- The API requires `cl-stuck` for cluster reconciliation
+
+#### Step 2: Create a cluster and nodepool, wait for Reconciled
+
+**Action:**
+```bash
+curl -X POST ${API_URL}/api/hyperfleet/v1/clusters \
+  -H "Content-Type: application/json" \
+  -d @testdata/payloads/clusters/cluster-request.json
+curl -X POST ${API_URL}/api/hyperfleet/v1/clusters/{cluster_id}/nodepools \
+  -H "Content-Type: application/json" \
+  -d @testdata/payloads/nodepools/nodepool-request.json
+```
+- Wait for both cluster and nodepool to reach `Reconciled: True`
+
+**Expected Result:**
+- Cluster and nodepool are both `Reconciled: True`
+
+#### Step 3: Scale down stuck-adapter and soft-delete the cluster
+
+**Action:**
+- Scale the stuck-adapter deployment to 0 replicas
+- Send DELETE request for the cluster:
+```bash
+curl -X DELETE ${API_URL}/api/hyperfleet/v1/clusters/{cluster_id}
+```
+
+**Expected Result:**
+- DELETE returns HTTP 202 with `deleted_time` set
+- Cluster remains stuck in Finalizing (`Reconciled: False`) because the stuck-adapter cannot process the delete event
+
+#### Step 4: Verify cluster is genuinely stuck in Finalizing
+
+**Action:**
+- Use `Consistently` to poll the cluster over a period and confirm it does not get hard-deleted
+
+**Expected Result:**
+- Cluster remains accessible via GET with `deleted_time` set
+- `Reconciled` condition remains `False` throughout the observation period
+
+#### Step 5: Force-delete the cluster and verify cascade removal
+
+**Action:**
+```bash
+curl -X POST ${API_URL}/api/hyperfleet/v1/clusters/{cluster_id}/force-delete \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "E2E test: stuck-adapter unable to finalize"}'
+```
+- Poll until cluster returns HTTP 404
+- Poll until child nodepool returns HTTP 404
+
+**Expected Result:**
+- Force-delete returns HTTP 204
+- Cluster is hard-deleted (GET returns HTTP 404)
+- Child nodepool is also hard-deleted (GET returns HTTP 404), confirming cascade removal
+
+#### Step 6: Cleanup resources
+
+**Action:**
+- Restore original required adapters list via API Helm upgrade
+- Uninstall the stuck-adapter Helm release
+- Delete the Pub/Sub subscription created by the adapter
+
+**Expected Result:**
+- All test infrastructure is restored to its original state
+
+---
+
+## Test Title: Adapter handles 404 gracefully after force-delete
+
+### Description
+
+This test validates that adapter pods remain healthy (Running, Ready, no restarts) after the resource they were processing is force-deleted out from under them. When a cluster is soft-deleted and then immediately force-deleted, the adapter receives the delete event but gets HTTP 404 when trying to GET the resource or POST status. A well-behaved adapter should handle 404 gracefully without crash-looping.
+
+---
+
+| **Field** | **Value** |
+|-----------|-----------|
+| **Pos/Neg** | Positive |
+| **Priority** | Tier2 |
+| **Status** | Draft |
+| **Automation** | Automated |
+| **Version** | Post-MVP |
+| **Created** | 2026-06-01 |
+| **Updated** | 2026-06-01 |
+
+---
+
+### Preconditions
+
+1. Environment is prepared using [hyperfleet-infra](https://github.com/openshift-hyperfleet/hyperfleet-infra) with all required platform resources
+2. HyperFleet API and HyperFleet Sentinel services are deployed and running successfully
+3. The adapters defined in testdata/adapter-configs are all deployed successfully
+4. Adapter Helm chart repository is accessible for deploying the test adapter
+
+---
+
+### Test Steps
+
+#### Step 1: Deploy a dedicated adapter and create a cluster
+
+**Action:**
+- Deploy a dedicated adapter (`cl-stuck`) via Helm chart
+- Create a cluster and wait for `Reconciled: True`
+
+**Expected Result:**
+- Adapter is deployed and running
+- Cluster reaches `Reconciled: True`
+
+#### Step 2: Capture baseline restart counts
+
+**Action:**
+- Record restart counts and pod names for all adapter containers before triggering deletion
+
+**Expected Result:**
+- Baseline restart counts and pod identities are captured for each container in the adapter pods
+
+#### Step 3: Soft-delete then immediately force-delete the cluster
+
+**Action:**
+```bash
+curl -X DELETE ${API_URL}/api/hyperfleet/v1/clusters/{cluster_id}
+curl -X POST ${API_URL}/api/hyperfleet/v1/clusters/{cluster_id}/force-delete \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "E2E test: verify adapter handles 404 gracefully"}'
+```
+- Verify cluster returns HTTP 404
+
+**Expected Result:**
+- Soft-delete returns HTTP 202
+- Force-delete returns HTTP 204
+- Cluster is hard-deleted (GET returns HTTP 404)
+
+#### Step 4: Verify adapter pods remain healthy
+
+**Action:**
+- Use `Consistently` to poll adapter pods over a sustained period:
+```bash
+kubectl get pods -n hyperfleet -l app.kubernetes.io/instance={release_name} -o json
+```
+
+**Expected Result:**
+- All adapter pods remain in `Running` phase with no pod replacements (same pod names as baseline)
+- All containers are `Ready`
+- No new container restarts occurred (restart count unchanged from baseline)
+
+#### Step 5: Cleanup resources
+
+**Action:**
+- Uninstall the adapter Helm release
+- Delete the Pub/Sub subscription
+
+**Expected Result:**
+- Adapter deployment is removed
+- Pub/Sub subscription is deleted
+
+---
+
+## Test Title: Force-delete rejected for invalid preconditions
+
+### Description
+
+This test validates the negative cases for force-delete: the API correctly rejects force-delete requests that violate preconditions. It covers three scenarios: force-deleting a cluster that is not in Finalizing state (409 Conflict), force-deleting with an empty reason (400 Bad Request), and force-deleting a nonexistent resource (404 Not Found).
+
+---
+
+| **Field** | **Value** |
+|-----------|-----------|
+| **Pos/Neg** | Negative |
+| **Priority** | Tier1 |
+| **Status** | Draft |
+| **Automation** | Automated |
+| **Version** | Post-MVP |
+| **Created** | 2026-06-01 |
+| **Updated** | 2026-06-01 |
+
+---
+
+### Preconditions
+
+1. Environment is prepared using [hyperfleet-infra](https://github.com/openshift-hyperfleet/hyperfleet-infra) with all required platform resources
+2. HyperFleet API is deployed and running successfully
+
+---
+
+### Test Steps
+
+#### Step 1: Create a cluster (no reconciliation needed)
+
+**Action:**
+```bash
+curl -X POST ${API_URL}/api/hyperfleet/v1/clusters \
+  -H "Content-Type: application/json" \
+  -d @testdata/payloads/clusters/cluster-request.json
+```
+
+**Expected Result:**
+- Cluster is created successfully
+
+#### Step 2: Force-delete a cluster not in Finalizing state
+
+**Action:**
+```bash
+curl -X POST ${API_URL}/api/hyperfleet/v1/clusters/{cluster_id}/force-delete \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "should be rejected"}'
+```
+
+**Expected Result:**
+- Returns HTTP 409 Conflict
+- Cluster is unchanged (GET returns HTTP 200, `deleted_time` is null)
+
+#### Step 3: Force-delete with empty reason
+
+**Action:**
+- Soft-delete the cluster first to put it in Finalizing:
+```bash
+curl -X DELETE ${API_URL}/api/hyperfleet/v1/clusters/{cluster_id}
+```
+- Attempt force-delete with empty reason:
+```bash
+curl -X POST ${API_URL}/api/hyperfleet/v1/clusters/{cluster_id}/force-delete \
+  -H "Content-Type: application/json" \
+  -d '{"reason": ""}'
+```
+
+**Expected Result:**
+- Returns HTTP 400 Bad Request (reason is required, 1-1024 characters)
+
+#### Step 4: Force-delete a nonexistent resource
+
+**Action:**
+```bash
+curl -X POST ${API_URL}/api/hyperfleet/v1/clusters/00000000-0000-0000-0000-000000000000/force-delete \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "testing nonexistent resource"}'
+```
+
+**Expected Result:**
+- Returns HTTP 404 Not Found
+
+#### Step 5: Cleanup resources
+
+**Action:**
+- `DeferClusterCleanup` registered in `BeforeEach` handles cluster cleanup automatically
+
+**Expected Result:**
+- Test cluster is hard-deleted
 
 ---
