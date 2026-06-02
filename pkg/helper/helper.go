@@ -2,6 +2,7 @@ package helper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -51,6 +52,11 @@ func (h *Helper) CleanupTestCluster(ctx context.Context, clusterID string) error
 	logger.Info("deleting cluster via API", "cluster_id", clusterID)
 
 	if _, err := h.Client.DeleteCluster(ctx, clusterID); err != nil {
+		var httpErr *client.HTTPError
+		if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusNotFound {
+			logger.Info("cluster already deleted", "cluster_id", clusterID)
+			return nil
+		}
 		return fmt.Errorf("delete cluster %s: %w", clusterID, err)
 	}
 
