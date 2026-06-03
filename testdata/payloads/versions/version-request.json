@@ -1,0 +1,13 @@
+{
+  "kind": "Version",
+  "name": "ver-{{.Random}}",
+  "spec": {
+    "raw_version": "4.17.0",
+    "enabled": true,
+    "is_default": false,
+    "release_image": "quay.io/openshift-release-dev/ocp-release:4.17.0"
+  },
+  "labels": {
+    "environment": "test"
+  }
+}

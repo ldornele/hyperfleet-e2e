@@ -119,6 +119,51 @@ func (h *Helper) CleanupTestNodePool(ctx context.Context, clusterID, nodepoolID 
 	return fmt.Errorf("nodepool %s not hard-deleted within %s", nodepoolID, h.Cfg.Timeouts.NodePool.Reconciled)
 }
 
+// CleanupTestChannel deletes all versions under a channel, then deletes the channel.
+// Channels/versions are non-reconcilable resources with no hard-delete — cleanup is just soft-delete, no 404 polling.
+func (h *Helper) CleanupTestChannel(ctx context.Context, channelID string) error {
+	logger.Info("cleaning up channel", "channel_id", channelID)
+
+	versions, err := h.Client.ListVersions(ctx, channelID, "")
+	if err != nil {
+		var httpErr *client.HTTPError
+		if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusNotFound {
+			logger.Info("channel already gone", "channel_id", channelID)
+			return nil
+		}
+		return fmt.Errorf("list versions for channel %s: %w", channelID, err)
+	}
+
+	var deleteErr error
+	for _, v := range versions.Items {
+		if v.DeletedTime != nil || v.Id == nil {
+			continue
+		}
+		if _, err := h.Client.DeleteVersion(ctx, channelID, *v.Id); err != nil {
+			var httpErr *client.HTTPError
+			if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusNotFound {
+				continue
+			}
+			logger.Error("failed to delete version during cleanup", "channel_id", channelID, "version_id", *v.Id, "error", err)
+			if deleteErr == nil {
+				deleteErr = fmt.Errorf("delete version %s: %w", *v.Id, err)
+			}
+		}
+	}
+
+	if _, err := h.Client.DeleteChannel(ctx, channelID); err != nil {
+		var httpErr *client.HTTPError
+		if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusNotFound {
+			logger.Info("channel already deleted", "channel_id", channelID)
+			return deleteErr
+		}
+		return fmt.Errorf("delete channel %s: %w", channelID, err)
+	}
+
+	logger.Info("channel cleaned up", "channel_id", channelID)
+	return deleteErr
+}
+
 // GetMaestroClient returns the Maestro client, initializing it lazily on first access
 // This avoids the overhead of K8s service discovery for test suites that don't use Maestro
 func (h *Helper) GetMaestroClient() *maestro.Client {
