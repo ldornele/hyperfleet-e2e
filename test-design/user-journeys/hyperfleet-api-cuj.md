@@ -319,7 +319,6 @@ GET /api/hyperfleet/v1/clusters?status.conditions.Reconciled='True'
 - Empty results list:
 ```json
 {
-  "kind": "ClusterList",
   "page": 1,
   "size": 0,
   "total": 0,
@@ -515,7 +514,6 @@ GET /api/hyperfleet/v1/clusters/{cluster_id}/nodepools?labels=workload:nonexiste
 - Empty results list:
 ```json
 {
-  "kind": "NodePoolList",
   "page": 1,
   "size": 0,
   "total": 0,
