@@ -82,33 +82,6 @@ var _ = ginkgo.Describe("[Suite: cluster][delete] Cluster Deletion Lifecycle",
 				Should(BeEmpty())
 		})
 
-		ginkgo.It("should return 409 Conflict when PATCHing a soft-deleted cluster", ginkgo.Label(labels.Negative), func(ctx context.Context) {
-			ginkgo.By("soft-deleting the cluster")
-			deletedCluster, err := h.Client.DeleteCluster(ctx, clusterID)
-			Expect(err).NotTo(HaveOccurred(), "DELETE request should succeed with 202")
-			Expect(deletedCluster.DeletedTime).NotTo(BeNil(), "soft-deleted cluster should have deleted_time set")
-			deletedGeneration := deletedCluster.Generation
-
-			ginkgo.By("attempting PATCH on the soft-deleted cluster")
-			patchReq := openapi.ClusterPatchRequest{
-				Spec: &openapi.ClusterSpec{"updated-key": "should-not-work"},
-			}
-			_, patchErr := h.Client.PatchCluster(ctx, clusterID, patchReq)
-			Expect(patchErr).To(HaveOccurred(), "PATCH on soft-deleted cluster should be rejected")
-			var httpErr *client.HTTPError
-			Expect(errors.As(patchErr, &httpErr)).To(BeTrue(), "error should be an HTTP error")
-			Expect(httpErr.StatusCode).To(Or(Equal(http.StatusConflict), Equal(http.StatusNotFound)),
-				"PATCH should be rejected once cluster deletion has started")
-
-			if httpErr.StatusCode == http.StatusConflict {
-				ginkgo.By("verifying cluster state is unchanged after rejected PATCH")
-				cluster, err := h.Client.GetCluster(ctx, clusterID)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(cluster.Generation).To(Equal(deletedGeneration), "generation should not change after rejected PATCH")
-				Expect(cluster.DeletedTime).NotTo(BeNil(), "cluster should still be marked as deleted")
-			}
-		})
-
 	},
 )
 

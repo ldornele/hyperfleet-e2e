@@ -2,6 +2,8 @@
 
 This guide explains how to write E2E tests for HyperFleet.
 
+> **Before adding a test here**, check the [test placement strategy](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/docs/e2e-testing/test-placement-strategy.md) — it may belong in the API repo's unit or integration tests instead.
+
 ## Before You Start
 
 ### 1. Understand the Test Structure
