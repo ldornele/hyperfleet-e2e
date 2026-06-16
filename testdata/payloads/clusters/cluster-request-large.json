@@ -1,0 +1,53 @@
+{
+  "kind": "Cluster",
+  "name": "hp-cluster-large-{{.Random}}",
+  "labels": {
+    "environment": "test",
+    "shard": "1",
+    "team": "platform",
+    "region": "us-central1",
+    "tier": "production",
+    "cost-center": "eng-001",
+    "owner": "team-infra",
+    "compliance": "soc2",
+    "datacenter": "dc-west-01",
+    "managed-by": "hyperfleet"
+  },
+  "spec": {
+    "platform": {
+      "type": "gcp",
+      "gcp": {
+        "projectID": "my-gcp-project",
+        "region": "us-central1",
+        "zone": "us-central1-a",
+        "network": "default",
+        "subnet": "default-subnet",
+        "subnets": [
+          { "id": "subnet-cp-01", "name": "control-plane", "cidr": "10.0.1.0/24", "role": "control-plane" },
+          { "id": "subnet-wk-01", "name": "worker-nodes-a", "cidr": "10.0.2.0/24", "role": "worker" },
+          { "id": "subnet-wk-02", "name": "worker-nodes-b", "cidr": "10.0.3.0/24", "role": "worker" },
+          { "id": "subnet-wk-03", "name": "worker-nodes-c", "cidr": "10.0.4.0/24", "role": "worker" },
+          { "id": "subnet-svc-01", "name": "service-mesh", "cidr": "10.0.5.0/24", "role": "service" },
+          { "id": "subnet-svc-02", "name": "service-ingress", "cidr": "10.0.6.0/24", "role": "service" },
+          { "id": "subnet-mon-01", "name": "monitoring", "cidr": "10.0.7.0/24", "role": "worker" },
+          { "id": "subnet-db-01", "name": "database", "cidr": "10.0.8.0/24", "role": "worker" }
+        ]
+      }
+    },
+    "release": {
+      "image": "registry.redhat.io/openshift4/ose-cluster-version-operator:v4.14.0",
+      "version": "4.14.0"
+    },
+    "networking": {
+      "clusterNetwork": [
+        { "cidr": "10.10.0.0/16", "hostPrefix": 24 },
+        { "cidr": "10.11.0.0/16", "hostPrefix": 24 },
+        { "cidr": "10.12.0.0/16", "hostPrefix": 24 }
+      ],
+      "serviceNetwork": ["10.96.0.0/16", "10.112.0.0/16"]
+    },
+    "dns": {
+      "baseDomain": "example.com"
+    }
+  }
+}

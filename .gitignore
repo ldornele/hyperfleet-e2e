@@ -48,6 +48,9 @@ vendor/
 .env.*.local
 deploy-scripts/.env
 
+# Perf test results
+perf/results/
+
 # Claude Code files
 .claude/
 

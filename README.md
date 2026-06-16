@@ -48,6 +48,12 @@ export HYPERFLEET_API_URL=https://api.hyperfleet.example.com
 
 Run `./bin/hyperfleet-e2e test --help` for all options.
 
+### Performance Tests
+
+Performance tests are labeled `perf` and measure baseline latencies for core operations. They run inside the cluster for production-representative numbers.
+
+See [perf/README.md](perf/README.md).
+
 ## Configuration
 
 Configuration priority (highest to lowest):

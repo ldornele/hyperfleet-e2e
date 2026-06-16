@@ -51,7 +51,7 @@ Pre-flight order: `make check` then `make build`.
 
 - **IMPORTANT:** Test files use `.go` extension, NOT `_test.go`. E2E tests are compiled into the binary, not run via `go test`.
 - Location: `e2e/{suite}/descriptive-name.go` (package matches directory name)
-- Test name format: `[Suite: component][category] Description` (e.g., `[Suite: cluster][baseline] Cluster Resource Type Lifecycle`). Known categories: `baseline`, `update`, `delete`, `concurrent`, `negative`.
+- Test name format: `[Suite: component][category] Description` (e.g., `[Suite: cluster][baseline] Cluster Resource Type Lifecycle`). Known categories: `baseline`, `update`, `delete`, `concurrent`, `negative`, `perf`.
 - Test suites auto-register via blank import in `e2e/e2e.go`
 
 ### Labels
