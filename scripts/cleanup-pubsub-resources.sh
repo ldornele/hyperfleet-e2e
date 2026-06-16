@@ -31,10 +31,6 @@ log_error() {
     echo "[ERROR] $*" >&2
 }
 
-log_verbose() {
-    echo "[VERBOSE] $*"
-}
-
 log_section() {
     echo ""
     echo "========================================"
@@ -127,7 +123,7 @@ discover_pubsub_topics() {
     local namespace="$1"
     local project_id="${GCP_PROJECT_ID}"
 
-    log_verbose "Discovering Pub/Sub topics for namespace: ${namespace}"
+    log_info "Discovering Pub/Sub topics for namespace: ${namespace}" >&2
 
     if [[ -z "${project_id}" ]]; then
         log_error "GCP_PROJECT_ID is not set"
@@ -177,8 +173,8 @@ discover_pubsub_topics() {
     done <<< "${all_topics}"
 
     if [[ ${#topics[@]} -eq 0 ]]; then
-        log_verbose "No Pub/Sub topics found for namespace: ${namespace}" >&2
-        return 1
+        log_info "No Pub/Sub topics found for namespace: ${namespace}" >&2
+        return 2
     fi
 
     log_info "Found ${#topics[@]} Pub/Sub topic(s) for namespace ${namespace}:" >&2
@@ -194,7 +190,7 @@ discover_pubsub_subscriptions() {
     local namespace="$1"
     local project_id="${GCP_PROJECT_ID}"
 
-    log_verbose "Discovering Pub/Sub subscriptions for namespace: ${namespace}"
+    log_info "Discovering Pub/Sub subscriptions for namespace: ${namespace}" >&2
 
     if [[ -z "${project_id}" ]]; then
         log_error "GCP_PROJECT_ID is not set"
@@ -238,8 +234,8 @@ discover_pubsub_subscriptions() {
     done <<< "${all_subscriptions}"
 
     if [[ ${#subscriptions[@]} -eq 0 ]]; then
-        log_verbose "No Pub/Sub subscriptions found for namespace: ${namespace}" >&2
-        return 1
+        log_info "No Pub/Sub subscriptions found for namespace: ${namespace}" >&2
+        return 2
     fi
 
     log_info "Found ${#subscriptions[@]} Pub/Sub subscription(s) for namespace ${namespace}:" >&2
@@ -306,9 +302,15 @@ delete_all_pubsub_subscriptions() {
 
     # Discover subscriptions (stdout only contains resource names, stderr has logs)
     local subscriptions
-    if ! subscriptions=$(discover_pubsub_subscriptions "${namespace}"); then
+    local discovery_exit_code=0
+    subscriptions=$(discover_pubsub_subscriptions "${namespace}") || discovery_exit_code=$?
+
+    if [[ ${discovery_exit_code} -eq 2 ]]; then
         log_info "No Pub/Sub subscriptions to delete"
         return 0
+    elif [[ ${discovery_exit_code} -ne 0 ]]; then
+        log_error "Failed to discover Pub/Sub subscriptions"
+        return 1
     fi
 
     # Delete each subscription
@@ -338,9 +340,15 @@ delete_all_pubsub_topics() {
 
     # Discover topics (stdout only contains resource names, stderr has logs)
     local topics
-    if ! topics=$(discover_pubsub_topics "${namespace}"); then
+    local discovery_exit_code=0
+    topics=$(discover_pubsub_topics "${namespace}") || discovery_exit_code=$?
+
+    if [[ ${discovery_exit_code} -eq 2 ]]; then
         log_info "No Pub/Sub topics to delete"
         return 0
+    elif [[ ${discovery_exit_code} -ne 0 ]]; then
+        log_error "Failed to discover Pub/Sub topics"
+        return 1
     fi
 
     # Delete each topic
