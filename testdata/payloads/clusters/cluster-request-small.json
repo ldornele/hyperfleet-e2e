@@ -1,0 +1,12 @@
+{
+  "kind": "Cluster",
+  "name": "hp-cluster-small-{{.Random}}",
+  "labels": {
+    "shard": "1"
+  },
+  "spec": {
+    "platform": {
+      "type": "gcp"
+    }
+  }
+}

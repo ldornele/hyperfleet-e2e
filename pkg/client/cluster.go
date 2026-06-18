@@ -39,7 +39,12 @@ func (c *HyperFleetClient) GetCluster(ctx context.Context, clusterID string) (*o
 
 // ListClusters retrieves all clusters.
 func (c *HyperFleetClient) ListClusters(ctx context.Context) (*openapi.ClusterList, error) {
-	resp, err := c.GetClusters(ctx, &openapi.GetClustersParams{})
+	return c.ListClustersWithParams(ctx, &openapi.GetClustersParams{})
+}
+
+// ListClustersWithParams retrieves clusters with query parameters (search, pagination, ordering).
+func (c *HyperFleetClient) ListClustersWithParams(ctx context.Context, params *openapi.GetClustersParams) (*openapi.ClusterList, error) {
+	resp, err := c.GetClusters(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list clusters: %w", err)
 	}
