@@ -102,14 +102,14 @@ var _ = ginkgo.Describe("[Suite: version][crud] Version CRUD Lifecycle",
 			ginkgo.By("patching version labels")
 			patched, err := h.Client.PatchVersion(ctx, channelID, versionID, client.ResourcePatchRequest{
 				Labels: map[string]string{
-					"crud": "version-lifecycle",
+					"crud": versionID,
 				},
 			})
 			Expect(err).NotTo(HaveOccurred(), "failed to patch version")
 			Expect(patched.Generation).To(Equal(int32(2)), "generation should increment after PATCH")
 
 			ginkgo.By("verifying patched labels via LIST")
-			fetched, err := h.Client.ListVersions(ctx, channelID, "labels.crud='version-lifecycle'")
+			fetched, err := h.Client.ListVersions(ctx, channelID, "labels.crud='"+versionID+"'")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(fetched.Items).To(HaveLen(1), "should have 1 version")
 			Expect(fetched.Items[0].Id).To(HaveValue(Equal(versionID)))
