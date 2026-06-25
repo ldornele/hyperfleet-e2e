@@ -60,7 +60,7 @@ delete_in_batches() {
   while true; do
     local clusters
     clusters=$(curl -G -s $CURL_OPTS "$API_BASE/clusters" \
-      --data-urlencode "pageSize=1000" \
+      --data-urlencode "size=1000" \
       "$@" \
       --http1.1 -H "Accept: application/json")
 
@@ -118,12 +118,12 @@ cleanup_clusters() {
 # Show active and seeded cluster counts.
 status_clusters() {
   local active
-  active=$(curl -s $CURL_OPTS "$API_BASE/clusters?pageSize=1" --http1.1 -H "Accept: application/json" | jq '.total // 0')
+  active=$(curl -s $CURL_OPTS "$API_BASE/clusters?size=1" --http1.1 -H "Accept: application/json" | jq '.total // 0')
 
   local seeded
   seeded=$(curl -G -s $CURL_OPTS "$API_BASE/clusters" \
     --data-urlencode "search=name like 'perf-seed-%'" \
-    --data-urlencode "pageSize=1" \
+    --data-urlencode "size=1" \
     --http1.1 -H "Accept: application/json" | jq '.total // 0')
 
   echo "=== Database status ==="
@@ -151,7 +151,7 @@ if [[ "$COUNT" == "cleanup" ]]; then
 fi
 
 if [[ "$COUNT" == "reset" ]]; then
-  total=$(curl -s $CURL_OPTS "$API_BASE/clusters?pageSize=1" --http1.1 -H "Accept: application/json" | jq '.total // 0')
+  total=$(curl -s $CURL_OPTS "$API_BASE/clusters?size=1" --http1.1 -H "Accept: application/json" | jq '.total // 0')
   echo "WARNING: This will delete ALL $total clusters at $API_URL"
   echo "kubectl context: $(kubectl config current-context 2>/dev/null || echo 'unknown')"
   read -r -p "Are you sure? (y/N) " confirm
@@ -179,7 +179,7 @@ fi
 
 existing=$(curl -G -s $CURL_OPTS "$API_BASE/clusters" \
   --data-urlencode "search=name like 'perf-seed-%'" \
-  --data-urlencode "pageSize=1" \
+  --data-urlencode "size=1" \
   --http1.1 -H "Accept: application/json" | jq '.total // 0')
 
 if [[ "$existing" -ge "$COUNT" ]]; then
