@@ -49,31 +49,31 @@ var _ = ginkgo.Describe("[Suite: cluster][perf] API list latency with filters an
 		})
 
 		ginkgo.It("should list clusters with page size limit within acceptable latency", func(ctx context.Context) {
-			ginkgo.By("measuring GET /clusters?pageSize=10 response time")
-			pageSize := openapi.QueryParamsPageSize(10)
+			ginkgo.By("measuring GET /clusters?size=10 response time")
+			size := openapi.QueryParamsSize(10)
 			start := time.Now()
 			_, err := h.Client.ListClustersWithParams(ctx, &openapi.GetClustersParams{
-				PageSize: &pageSize,
+				Size: &size,
 			})
 			Expect(err).NotTo(HaveOccurred())
 			elapsed := time.Since(start)
-			ginkgo.GinkgoWriter.Printf("[PERF] GET /clusters (pageSize=10) latency: %v\n", elapsed)
+			ginkgo.GinkgoWriter.Printf("[PERF] GET /clusters (size=10) latency: %v\n", elapsed)
 			Expect(elapsed).To(BeNumerically("<", config.ThresholdAPIList),
-				"GET /clusters with pageSize exceeded threshold")
+				"GET /clusters with page size limit exceeded threshold")
 		})
 
 		ginkgo.It("should list clusters with pagination within acceptable latency", func(ctx context.Context) {
-			ginkgo.By("measuring GET /clusters?page=1&pageSize=10 response time")
+			ginkgo.By("measuring GET /clusters?page=1&size=10 response time")
 			page := openapi.QueryParamsPage(1)
-			pageSize := openapi.QueryParamsPageSize(10)
+			size := openapi.QueryParamsSize(10)
 			start := time.Now()
 			_, err := h.Client.ListClustersWithParams(ctx, &openapi.GetClustersParams{
-				Page:     &page,
-				PageSize: &pageSize,
+				Page: &page,
+				Size: &size,
 			})
 			Expect(err).NotTo(HaveOccurred())
 			elapsed := time.Since(start)
-			ginkgo.GinkgoWriter.Printf("[PERF] GET /clusters (page=1, pageSize=10) latency: %v\n", elapsed)
+			ginkgo.GinkgoWriter.Printf("[PERF] GET /clusters (page=1, size=10) latency: %v\n", elapsed)
 			Expect(elapsed).To(BeNumerically("<", config.ThresholdAPIList),
 				"GET /clusters with pagination exceeded threshold")
 		})
