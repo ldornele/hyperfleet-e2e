@@ -2,6 +2,7 @@ package helper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -9,6 +10,8 @@ import (
 
 	k8sclient "github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/client/kubernetes"
 	"github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/config"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
@@ -203,5 +206,92 @@ func TestGenerateAdapterReleaseName_LongNameCollision(t *testing.T) {
 
 	if a == b {
 		t.Errorf("different inputs produced same release name: %q", a)
+	}
+}
+
+func TestDeletePubSubSubscription(t *testing.T) {
+	tests := []struct {
+		name               string
+		projectID          string
+		deleteErr          error
+		factoryErr         error
+		wantErr            bool
+		wantErrMsg         string
+		wantDefaultProject bool
+	}{
+		{
+			name:      "subscription deleted successfully",
+			projectID: "test-project",
+		},
+		{
+			name:      "subscription not found is noop",
+			projectID: "test-project",
+			deleteErr: status.Error(codes.NotFound, "Subscription does not exist"),
+		},
+		{
+			name:       "permission denied is hard error",
+			projectID:  "test-project",
+			deleteErr:  status.Error(codes.PermissionDenied, "caller does not have permission"),
+			wantErr:    true,
+			wantErrMsg: "failed to delete Pub/Sub subscription",
+		},
+		{
+			name:       "other error propagated",
+			projectID:  "test-project",
+			deleteErr:  errors.New("connection refused"),
+			wantErr:    true,
+			wantErrMsg: "failed to delete Pub/Sub subscription",
+		},
+		{
+			name:       "factory error propagated",
+			projectID:  "test-project",
+			factoryErr: errors.New("auth failed"),
+			wantErr:    true,
+			wantErrMsg: "auth failed",
+		},
+		{
+			name:               "empty project uses default",
+			wantDefaultProject: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedProjectID string
+			var cleanupCalled bool
+
+			original := newPubSubDeleteFunc
+			t.Cleanup(func() { newPubSubDeleteFunc = original })
+
+			newPubSubDeleteFunc = func(_ context.Context, projectID, _ string) (func(context.Context) error, func(), error) {
+				capturedProjectID = projectID
+				if tt.factoryErr != nil {
+					return nil, nil, tt.factoryErr
+				}
+				return func(context.Context) error { return tt.deleteErr }, func() { cleanupCalled = true }, nil
+			}
+
+			h := &Helper{Cfg: &config.Config{GCPProjectID: tt.projectID}}
+			err := h.DeletePubSubSubscription(context.Background(), "test-sub")
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tt.wantErrMsg != "" && !strings.Contains(err.Error(), tt.wantErrMsg) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.wantErrMsg)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if tt.wantDefaultProject && capturedProjectID != defaultGCPProjectID {
+				t.Errorf("expected default project %q, got %q", defaultGCPProjectID, capturedProjectID)
+			}
+
+			if tt.factoryErr == nil && !cleanupCalled {
+				t.Error("cleanup function was not called")
+			}
+		})
 	}
 }
