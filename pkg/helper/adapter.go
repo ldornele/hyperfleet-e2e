@@ -13,7 +13,11 @@ import (
 	"strings"
 	"time"
 
+	pubsubadmin "cloud.google.com/go/pubsub/v2/apiv1"
+	pubsubpb "cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"github.com/openshift-hyperfleet/hyperfleet-e2e/pkg/logger"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -543,7 +547,25 @@ func (h *Helper) purgeRabbitMQQueue(ctx context.Context, adapterName string) err
 	return nil
 }
 
-// DeletePubSubSubscription deletes a Google Pub/Sub subscription.
+var newPubSubDeleteFunc = func(ctx context.Context, projectID, subID string) (func(context.Context) error, func(), error) {
+	client, err := pubsubadmin.NewSubscriptionAdminClient(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create Pub/Sub admin client: %w", err)
+	}
+	subPath := fmt.Sprintf("projects/%s/subscriptions/%s", projectID, subID)
+	deleteFn := func(ctx context.Context) error {
+		return client.DeleteSubscription(ctx, &pubsubpb.DeleteSubscriptionRequest{
+			Subscription: subPath,
+		})
+	}
+	return deleteFn, func() {
+		if err := client.Close(); err != nil {
+			logger.Info("failed to close Pub/Sub admin client", "error", err)
+		}
+	}, nil
+}
+
+// DeletePubSubSubscription deletes a Google Pub/Sub subscription using the Go SDK.
 // If the subscription does not exist, it is treated as a no-op.
 func (h *Helper) DeletePubSubSubscription(ctx context.Context, subscriptionID string) error {
 	projectID := h.Cfg.GCPProjectID
@@ -555,22 +577,22 @@ func (h *Helper) DeletePubSubSubscription(ctx context.Context, subscriptionID st
 		"subscription", subscriptionID,
 		"project", projectID)
 
-	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(cmdCtx, "gcloud", "pubsub", "subscriptions", "delete", // #nosec G204 -- subscriptionID and projectID are from trusted test config
-		subscriptionID,
-		"--project="+projectID,
-		"--quiet")
-
-	output, err := cmd.CombinedOutput()
+	deleteFn, cleanup, err := newPubSubDeleteFunc(ctx, projectID, subscriptionID)
 	if err != nil {
-		outputStr := string(output)
-		if strings.Contains(outputStr, "NOT_FOUND") || strings.Contains(outputStr, "not found") {
+		return err
+	}
+	defer cleanup()
+
+	if err := deleteFn(ctx); err != nil {
+		if status.Code(err) == codes.NotFound {
 			logger.Info("Pub/Sub subscription not found, skipping deletion", "subscription", subscriptionID)
 			return nil
 		}
-		return fmt.Errorf("failed to delete Pub/Sub subscription %s: %w (output: %s)", subscriptionID, err, outputStr)
+		logger.Error("failed to delete Pub/Sub subscription",
+			"subscription", subscriptionID,
+			"project", projectID,
+			"error", err)
+		return fmt.Errorf("failed to delete Pub/Sub subscription %s: %w", subscriptionID, err)
 	}
 
 	logger.Info("Pub/Sub subscription deleted successfully", "subscription", subscriptionID)
